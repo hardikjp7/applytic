@@ -1,0 +1,7 @@
+node_modules/
+cdk/dist/
+cdk/cdk.out/
+__pycache__/
+*.pyc
+.env
+*.zip
