@@ -1,0 +1,4 @@
+# boto3 is pre-installed in the Lambda Python 3.12 runtime
+# Add third-party packages here only if needed
+# e.g. aws-lambda-powertools for structured logging (recommended)
+aws-lambda-powertools==2.43.1
