@@ -1,0 +1,131 @@
+import { useState, useRef } from 'react'
+import { Upload, FileText, CheckCircle } from 'lucide-react'
+import { getUploadUrl, uploadResumeToS3 } from '../../lib/api'
+import toast from 'react-hot-toast'
+
+interface UploadedResume {
+  versionName: string
+  filename: string
+  uploadedAt: string
+}
+
+export default function ResumeUpload() {
+  const [versionName, setVersionName] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploaded, setUploaded] = useState<UploadedResume[]>([])
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f && f.type === 'application/pdf') setFile(f)
+    else toast.error('Please select a PDF file')
+  }
+
+  const handleUpload = async () => {
+    if (!file || !versionName.trim()) {
+      toast.error('Add a version name and select a PDF')
+      return
+    }
+    setUploading(true)
+    try {
+      const { uploadUrl } = await getUploadUrl(file.name, versionName)
+      await uploadResumeToS3(uploadUrl, file)
+      setUploaded(prev => [...prev, {
+        versionName,
+        filename: file.name,
+        uploadedAt: new Date().toLocaleDateString(),
+      }])
+      toast.success(`Resume "${versionName}" uploaded`)
+      setFile(null)
+      setVersionName('')
+      if (inputRef.current) inputRef.current.value = ''
+    } catch {
+      toast.error('Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="p-6 max-w-2xl">
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-gray-900">Resumes</h1>
+        <p className="text-sm text-gray-400 mt-0.5">
+          Upload different versions and tag each application with which version you used — then see which converts best in Analytics.
+        </p>
+      </div>
+
+      {/* Upload card */}
+      <div className="bg-white border border-gray-100 rounded-xl p-6 space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Version name</label>
+          <input
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+            placeholder="e.g. v3-ml-focused, senior-backend-v2"
+            value={versionName}
+            onChange={e => setVersionName(e.target.value)}
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Use the same name when logging an application so the analytics can track it.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">PDF file</label>
+          <div
+            onClick={() => inputRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+              file ? 'border-brand-400 bg-brand-50' : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            {file ? (
+              <div className="flex items-center justify-center gap-2 text-brand-600">
+                <FileText size={18} />
+                <span className="text-sm font-medium">{file.name}</span>
+              </div>
+            ) : (
+              <div className="text-gray-400">
+                <Upload size={24} className="mx-auto mb-2" />
+                <p className="text-sm">Click to select PDF</p>
+              </div>
+            )}
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf"
+            onChange={handleFile}
+            className="hidden"
+          />
+        </div>
+
+        <button
+          onClick={handleUpload}
+          disabled={uploading || !file || !versionName.trim()}
+          className="w-full py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 disabled:opacity-40 transition-colors"
+        >
+          {uploading ? 'Uploading...' : 'Upload resume'}
+        </button>
+      </div>
+
+      {/* Uploaded list */}
+      {uploaded.length > 0 && (
+        <div className="mt-6">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Uploaded this session</p>
+          <div className="space-y-2">
+            {uploaded.map((r, i) => (
+              <div key={i} className="flex items-center gap-3 bg-white border border-gray-100 rounded-lg px-4 py-3">
+                <CheckCircle size={15} className="text-green-500 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-800">{r.versionName}</p>
+                  <p className="text-xs text-gray-400">{r.filename} · {r.uploadedAt}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,35 @@
+{
+  "name": "applytic-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && aws s3 sync dist/ s3://$(aws cloudformation describe-stacks --stack-name ApplyticStack --query \"Stacks[0].Outputs[?OutputKey=='ResumeBucketName'].OutputValue\" --output text | sed 's/resumes/frontend/') --delete && aws cloudfront create-invalidation --distribution-id $(aws cloudformation describe-stacks --stack-name ApplyticStack --query \"Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue\" --output text) --paths '/*'"
+  },
+  "dependencies": {
+    "@aws-amplify/ui-react": "^6.0.0",
+    "aws-amplify": "^6.0.0",
+    "axios": "^1.6.0",
+    "@hello-pangea/dnd": "^16.3.0",
+    "recharts": "^2.10.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "react-hot-toast": "^2.4.1",
+    "lucide-react": "^0.294.0",
+    "date-fns": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.0"
+  }
+}
