@@ -12,31 +12,7 @@ Built as a production-grade portfolio project to demonstrate end-to-end AWS ML e
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Frontend (React + Vite)                      │
-│             S3 Static Hosting  ──  CloudFront CDN                │
-│   Dashboard │ Kanban Board │ Analytics │ AI Coach │ Resumes      │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │  HTTPS + JWT (Cognito)
-┌──────────────────────────▼──────────────────────────────────────┐
-│                      API Gateway (REST)                          │
-│    /applications   /insights   /insights/chat   /resumes        │
-└────────┬─────────────────┬──────────────────────────────────────┘
-         │                 │
-┌────────▼──────┐  ┌───────▼────────┐  ┌────────────────────────┐
-│  Applications │  │    Insights    │  │    Digest Lambda       │
-│    Lambda     │  │    Lambda      │  │  (EventBridge Monday)  │
-│               │  │                │  │                        │
-│ CRUD + status │  │ Pattern engine │  │  Bedrock → SES email   │
-│ S3 presigned  │  │ Bedrock chat   │  │                        │
-└───────┬───────┘  └───────┬────────┘  └────────────────────────┘
-        │                  │
-┌───────▼──────────────────▼──────────────────────────────────────┐
-│                         Data Layer                               │
-│   DynamoDB (single-table)  │  S3 (resumes)  │  CloudWatch       │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Architecture Diagram](architecture.png)
 
 ---
 
