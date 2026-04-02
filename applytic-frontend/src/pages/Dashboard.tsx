@@ -1,6 +1,6 @@
-import { useApplications } from '../../hooks/useApplications'
-import { STATUS_LABELS, STATUS_COLORS } from '../../lib/utils'
-import type { AppStatus } from '../../types'
+import { useApplications } from '../hooks/useApplications.ts'
+import { STATUS_LABELS, STATUS_COLORS } from '../lib/utils'
+import type { AppStatus } from '../types/index'
 import { formatDistanceToNow } from 'date-fns'
 import { TrendingUp, Target, Zap, Award } from 'lucide-react'
 
