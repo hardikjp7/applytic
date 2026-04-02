@@ -18,7 +18,7 @@ MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
 table = dynamodb.Table(TABLE_NAME)
 
 
-# Helpers
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def resp(status: int, body: dict) -> dict:
     return {
@@ -37,7 +37,7 @@ def get_user_email(event: dict) -> str:
     return event["requestContext"]["authorizer"]["claims"].get("email", "")
 
 
-# Fetch all applications for a user
+# ── Fetch all applications for a user ─────────────────────────────────────────
 
 def fetch_all_applications(user_id: str) -> list:
     result = table.query(
@@ -47,7 +47,7 @@ def fetch_all_applications(user_id: str) -> list:
     return [item for item in result["Items"] if item.get("entityType") == "APPLICATION"]
 
 
-# Pattern analysis
+# ── Pattern analysis ───────────────────────────────────────────────────────────
 
 def compute_patterns(apps: list) -> dict:
     if not apps:
@@ -109,7 +109,14 @@ def compute_patterns(apps: list) -> dict:
     weekly_counts = defaultdict(int)
     for app in apps:
         try:
-            applied = datetime.fromisoformat(app.get("dateApplied", "").replace("Z", "+00:00"))
+            date_str = app.get("dateApplied", "")
+            # dateApplied is stored as YYYY-MM-DD — parse as naive then make UTC-aware
+            if len(date_str) == 10:
+                applied = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            else:
+                applied = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                if applied.tzinfo is None:
+                    applied = applied.replace(tzinfo=timezone.utc)
             weeks_ago = (now - applied).days // 7
             if weeks_ago < 4:
                 weekly_counts[weeks_ago] += 1
@@ -154,7 +161,7 @@ def compute_patterns(apps: list) -> dict:
     }
 
 
-# Build context summary for Bedrock
+# ── Build context summary for Bedrock ─────────────────────────────────────────
 
 def build_context_for_llm(apps: list, patterns: dict) -> str:
     recent = sorted(apps, key=lambda x: x.get("createdAt", ""), reverse=True)[:20]
@@ -188,7 +195,7 @@ def build_context_for_llm(apps: list, patterns: dict) -> str:
     return "\n".join(lines)
 
 
-# Bedrock chat
+# ── Bedrock chat ───────────────────────────────────────────────────────────────
 
 def chat_with_coach(user_message: str, context: str) -> str:
     system_prompt = """You are a pragmatic, data-driven job search coach. 
@@ -218,7 +225,7 @@ My question: {user_message}"""
     return result["content"][0]["text"]
 
 
-# Router
+# ── Router ─────────────────────────────────────────────────────────────────────
 
 def lambda_handler(event: dict, context) -> dict:
     method = event.get("httpMethod", "")

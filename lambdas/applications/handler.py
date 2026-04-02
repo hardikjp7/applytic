@@ -19,7 +19,7 @@ RESUME_BUCKET = os.environ["RESUME_BUCKET"]
 table = dynamodb.Table(TABLE_NAME)
 
 
-# Helpers
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def resp(status: int, body: dict) -> dict:
     return {
@@ -38,7 +38,7 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Application CRUD
+# ── Application CRUD ───────────────────────────────────────────────────────────
 
 def list_applications(user_id: str) -> dict:
     result = table.query(
@@ -168,7 +168,7 @@ def _write_status_event(app_id, user_id, from_status, to_status, ts, notes=""):
     })
 
 
-# Resume presigned URL
+# ── Resume presigned URL ───────────────────────────────────────────────────────
 
 def get_upload_url(user_id: str, body: dict) -> dict:
     filename = body.get("filename")
@@ -193,7 +193,7 @@ def get_upload_url(user_id: str, body: dict) -> dict:
     return resp(200, {"uploadUrl": url, "s3Key": s3_key, "versionName": version_name})
 
 
-# Router
+# ── Router ─────────────────────────────────────────────────────────────────────
 
 def lambda_handler(event: dict, context) -> dict:
     method = event.get("httpMethod", "")

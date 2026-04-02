@@ -1,7 +1,26 @@
+# Dependencies
 node_modules/
+frontend/node_modules/
+
+# Build outputs
 cdk/dist/
 cdk/cdk.out/
+frontend/dist/
+
+# Environment files — NEVER commit these
+.env
+frontend/.env
+*.env
+
+# Python
 __pycache__/
 *.pyc
-.env
-*.zip
+*.pyo
+.pytest_cache/
+
+# CDK
+*.js.map
+
+# OS
+.DS_Store
+Thumbs.db

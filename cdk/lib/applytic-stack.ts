@@ -186,7 +186,7 @@ export class ApplyticStack extends cdk.Stack {
       description: 'Weekly email digest via SES',
       environment: {
         ...commonEnv,
-        SES_FROM_EMAIL: 'hardikjparmar7@gmail.com', // replace after SES verification
+        SES_FROM_EMAIL: 'noreply@yourdomain.com', // replace after SES verification
       },
     });
 
