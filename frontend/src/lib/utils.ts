@@ -1,4 +1,4 @@
-import type { AppStatus } from '../types/index'
+import type { AppStatus } from '../types'
 
 export const STATUS_LABELS: Record<AppStatus, string> = {
   applied:   'Applied',

@@ -20,7 +20,7 @@ FROM_EMAIL = os.environ.get("SES_FROM_EMAIL", "noreply@yourdomain.com")
 table = dynamodb.Table(TABLE_NAME)
 
 
-# ── Fetch users with activity in the last 7 days ──────────────────────────────
+# Fetch users with activity in the last 7 days
 
 def get_active_users() -> list[dict]:
     """
@@ -73,7 +73,7 @@ def get_week_events(user_id: str) -> list:
     return events
 
 
-# ── Generate weekly tip via Bedrock ───────────────────────────────────────────
+# Generate weekly tip via Bedrock
 
 def generate_weekly_tip(apps: list, week_events: list) -> str:
     total = len(apps)
@@ -108,7 +108,7 @@ Weekly tip:"""
     return result["content"][0]["text"].strip()
 
 
-# ── Build and send email ───────────────────────────────────────────────────────
+# Build and send email
 
 def build_email_html(apps: list, week_events: list, tip: str, user_email: str) -> str:
     total = len(apps)
@@ -185,7 +185,7 @@ def send_digest(user_email: str, html: str):
     )
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+# Entry point
 
 def lambda_handler(event, context):
     print(f"Weekly digest triggered at {datetime.now(timezone.utc).isoformat()}")

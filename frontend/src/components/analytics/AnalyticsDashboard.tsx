@@ -21,10 +21,47 @@ export default function AnalyticsDashboard() {
   }, [])
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64 text-gray-400 text-sm">Loading insights...</div>
+    <div className="p-6 space-y-6">
+      <div>
+        <div className="h-5 bg-gray-100 rounded w-24 animate-pulse mb-1.5" />
+        <div className="h-3.5 bg-gray-100 rounded w-48 animate-pulse" />
+      </div>
+      <div className="grid grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-white border border-gray-100 rounded-xl p-4 animate-pulse">
+            <div className="h-4 w-4 bg-gray-100 rounded mb-2" />
+            <div className="h-7 bg-gray-100 rounded w-12 mb-1.5" />
+            <div className="h-3 bg-gray-100 rounded w-20" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-6">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-white border border-gray-100 rounded-xl p-5 animate-pulse">
+            <div className="h-4 bg-gray-100 rounded w-36 mb-4" />
+            <div className="h-48 bg-gray-50 rounded-lg" />
+          </div>
+        ))}
+      </div>
+    </div>
   )
-  if (!patterns) return (
-    <div className="flex items-center justify-center h-64 text-gray-400 text-sm">No data yet</div>
+
+  if (!patterns || patterns.summary.total === 0) return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-gray-900">Analytics</h1>
+        <p className="text-sm text-gray-400 mt-0.5">Pattern analysis across your applications</p>
+      </div>
+      <div className="bg-white border border-gray-100 rounded-xl p-12 text-center">
+        <div className="w-12 h-12 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-4">
+          <TrendingUp size={20} className="text-brand-600" />
+        </div>
+        <p className="text-sm font-medium text-gray-700 mb-1">No data to analyse yet</p>
+        <p className="text-sm text-gray-400">
+          Add at least 5 applications on the Board and your patterns will appear here.
+        </p>
+      </div>
+    </div>
   )
 
   const sourceData = Object.entries(patterns.breakdowns.bySource).map(([name, d]) => ({

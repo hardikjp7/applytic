@@ -12,6 +12,6 @@ new ApplyticStack(app, 'ApplyticStack', {
   },
   tags: {
     project: 'applytic',
-    owner: 'Hardik',
+    owner: 'hardik',
   },
 });
