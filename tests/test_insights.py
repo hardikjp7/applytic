@@ -1,9 +1,6 @@
 """
 Tests for the Insights Lambda — pattern analysis engine.
 
-These tests cover the core ML logic: response rate computation,
-breakdown by dimension, highlights detection, and LLM context building.
-
 Run with:
     pip install pytest
     pytest tests/test_insights.py -v
@@ -11,10 +8,19 @@ Run with:
 import sys
 import os
 import pytest
+import importlib.util
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lambdas', 'insights'))
+# Load insights handler by file path to avoid module name collision
+_handler_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'lambdas', 'insights', 'handler.py')
+)
+_spec = importlib.util.spec_from_file_location('insights_handler', _handler_path)
+_mod = importlib.util.module_from_spec(_spec)
+sys.modules['insights_handler'] = _mod
+_spec.loader.exec_module(_mod)
 
-from insights_handler import compute_patterns, build_context_for_llm
+compute_patterns = _mod.compute_patterns
+build_context_for_llm = _mod.build_context_for_llm
 
 
 class TestComputePatterns:
@@ -32,7 +38,6 @@ class TestComputePatterns:
         assert result['summary']['byStatus']['applied'] == 1
 
     def test_response_rate_excludes_applied_and_rejected(self, sample_applications):
-        # responded = screened + interview + offer = 0 + 2 + 1 = 3 out of 8
         result = compute_patterns(sample_applications)
         expected = round(3 / 8 * 100, 1)
         assert result['summary']['responseRate'] == expected
@@ -50,32 +55,24 @@ class TestComputePatterns:
         assert 'job-board' in sources
 
     def test_referral_has_highest_response_rate(self, sample_applications):
-        """Referrals (app-1 offer + app-3 interview) should beat LinkedIn."""
         result = compute_patterns(sample_applications)
         sources = result['breakdowns']['bySource']
-        referral_rate = sources['referral']['responseRate']
-        linkedin_rate = sources['linkedin']['responseRate']
-        assert referral_rate > linkedin_rate
+        assert sources['referral']['responseRate'] > sources['linkedin']['responseRate']
 
     def test_v3_resume_outperforms_v1(self, sample_applications):
-        """v3-ml-focused should have higher response rate than v1-generic."""
         result = compute_patterns(sample_applications)
         versions = result['breakdowns']['byResumeVersion']
         assert versions['v3-ml-focused']['responseRate'] > versions['v1-generic']['responseRate']
 
     def test_v1_generic_has_zero_response_rate(self, sample_applications):
-        """All v1-generic apps are rejected — response rate should be 0."""
         result = compute_patterns(sample_applications)
         versions = result['breakdowns']['byResumeVersion']
         assert versions['v1-generic']['responseRate'] == 0.0
 
     def test_enterprise_companies_have_low_response_rate(self, sample_applications):
-        """Enterprise rejections should drag enterprise response rate below startup."""
         result = compute_patterns(sample_applications)
         sizes = result['breakdowns']['byCompanySize']
-        enterprise_rate = sizes.get('enterprise', {}).get('responseRate', 0)
-        startup_rate = sizes.get('startup', {}).get('responseRate', 100)
-        assert enterprise_rate < startup_rate
+        assert sizes.get('enterprise', {}).get('responseRate', 0) < sizes.get('startup', {}).get('responseRate', 100)
 
     def test_highlights_best_source_is_referral(self, sample_applications):
         result = compute_patterns(sample_applications)
@@ -90,19 +87,18 @@ class TestComputePatterns:
     def test_response_rate_never_exceeds_100(self, sample_applications):
         result = compute_patterns(sample_applications)
         for source, data in result['breakdowns']['bySource'].items():
-            assert data['responseRate'] <= 100.0, f"{source} response rate > 100"
+            assert data['responseRate'] <= 100.0
 
     def test_response_rate_never_below_zero(self, sample_applications):
         result = compute_patterns(sample_applications)
         for source, data in result['breakdowns']['bySource'].items():
-            assert data['responseRate'] >= 0.0, f"{source} response rate < 0"
+            assert data['responseRate'] >= 0.0
 
     def test_velocity_returns_4_weeks(self, sample_applications):
         result = compute_patterns(sample_applications)
         assert len(result['velocity']) == 4
 
     def test_breakdown_totals_match_per_source(self, sample_applications):
-        """Sum of all source totals should equal total applications."""
         result = compute_patterns(sample_applications)
         source_total = sum(d['total'] for d in result['breakdowns']['bySource'].values())
         assert source_total == result['summary']['total']
@@ -165,7 +161,6 @@ class TestBuildContextForLlm:
         assert len(context) > 100
 
     def test_context_caps_recent_apps_at_20(self):
-        """Context should not grow unbounded for large datasets."""
         apps = [
             {
                 'appId': f'app-{i}', 'userId': 'u', 'company': f'Co{i}', 'role': 'Eng',
@@ -179,6 +174,5 @@ class TestBuildContextForLlm:
         ]
         patterns = compute_patterns(apps)
         context = build_context_for_llm(apps, patterns)
-        # Count company mentions — should be capped at 20 recent apps
         company_lines = [l for l in context.split('\n') if 'Co' in l and '|' in l]
         assert len(company_lines) <= 20

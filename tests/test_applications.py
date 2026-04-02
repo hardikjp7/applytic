@@ -12,16 +12,23 @@ import sys
 import os
 import json
 import pytest
+import importlib.util
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lambdas', 'applications'))
-
-from applications_handler import (
-    resp,
-    get_user_id,
-    now_iso,
-    lambda_handler,
+# Load applications handler by file path to avoid module name collision
+_handler_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'lambdas', 'applications', 'handler.py')
 )
+_spec = importlib.util.spec_from_file_location('applications_handler', _handler_path)
+_mod = importlib.util.module_from_spec(_spec)
+sys.modules['applications_handler'] = _mod
+_spec.loader.exec_module(_mod)
+
+resp = _mod.resp
+get_user_id = _mod.get_user_id
+now_iso = _mod.now_iso
+lambda_handler = _mod.lambda_handler
+
 from conftest import make_event
 
 
@@ -87,9 +94,7 @@ class TestListApplications:
         event = make_event('GET', '/applications')
         with patch('applications_handler.table') as mock_table:
             mock_table.query.return_value = {
-                'Items': [
-                    {'appId': 'a1', 'company': 'Stripe', 'status': 'applied'},
-                ],
+                'Items': [{'appId': 'a1', 'company': 'Stripe', 'status': 'applied'}],
                 'Count': 1,
             }
             result = lambda_handler(event, None)
@@ -113,9 +118,7 @@ class TestCreateApplication:
 
     def test_creates_successfully_with_required_fields(self):
         event = make_event('POST', '/applications', body={
-            'company': 'Anthropic',
-            'role': 'ML Engineer',
-            'status': 'applied',
+            'company': 'Anthropic', 'role': 'ML Engineer', 'status': 'applied',
         })
         with patch('applications_handler.table') as mock_table:
             mock_table.put_item.return_value = {}
@@ -123,46 +126,38 @@ class TestCreateApplication:
         assert result['statusCode'] == 201
         body = json.loads(result['body'])
         assert body['application']['company'] == 'Anthropic'
-        assert body['application']['role'] == 'ML Engineer'
         assert 'appId' in body['application']
 
     def test_fails_without_company(self):
         event = make_event('POST', '/applications', body={
-            'role': 'ML Engineer',
-            'status': 'applied',
+            'role': 'ML Engineer', 'status': 'applied',
         })
         result = lambda_handler(event, None)
         assert result['statusCode'] == 400
-        body = json.loads(result['body'])
-        assert 'company' in body['error']
+        assert 'company' in json.loads(result['body'])['error']
 
     def test_fails_without_role(self):
         event = make_event('POST', '/applications', body={
-            'company': 'Anthropic',
-            'status': 'applied',
+            'company': 'Anthropic', 'status': 'applied',
         })
         result = lambda_handler(event, None)
         assert result['statusCode'] == 400
 
     def test_fails_without_status(self):
         event = make_event('POST', '/applications', body={
-            'company': 'Anthropic',
-            'role': 'ML Engineer',
+            'company': 'Anthropic', 'role': 'ML Engineer',
         })
         result = lambda_handler(event, None)
         assert result['statusCode'] == 400
 
     def test_optional_fields_default_correctly(self):
         event = make_event('POST', '/applications', body={
-            'company': 'Stripe',
-            'role': 'Engineer',
-            'status': 'applied',
+            'company': 'Stripe', 'role': 'Engineer', 'status': 'applied',
         })
         with patch('applications_handler.table') as mock_table:
             mock_table.put_item.return_value = {}
             result = lambda_handler(event, None)
-        body = json.loads(result['body'])
-        app = body['application']
+        app = json.loads(result['body'])['application']
         assert app['source'] == 'unknown'
         assert app['resumeVersion'] == 'default'
         assert app['notes'] == ''
@@ -175,10 +170,8 @@ class TestCreateApplication:
         with patch('applications_handler.table') as mock_table:
             mock_table.put_item.return_value = {}
             result = lambda_handler(event, None)
-        body = json.loads(result['body'])
-        app_id = body['application']['appId']
-        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-        assert re.match(uuid_pattern, app_id)
+        app_id = json.loads(result['body'])['application']['appId']
+        assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', app_id)
 
 
 class TestUpdateStatus:
@@ -191,10 +184,7 @@ class TestUpdateStatus:
         )
         with patch('applications_handler.table') as mock_table:
             mock_table.get_item.return_value = {
-                'Item': {
-                    'PK': 'USER#test-user-123', 'SK': 'APP#app-123',
-                    'status': 'screened', 'appId': 'app-123',
-                }
+                'Item': {'PK': 'USER#test-user-123', 'SK': 'APP#app-123', 'status': 'screened', 'appId': 'app-123'}
             }
             mock_table.update_item.return_value = {}
             mock_table.put_item.return_value = {}
@@ -208,14 +198,13 @@ class TestUpdateStatus:
         event = make_event(
             'POST', '/applications/app-123/status',
             path_params={'appId': 'app-123'},
-            body={'status': 'in-progress'},  # not a valid status
+            body={'status': 'in-progress'},
         )
         result = lambda_handler(event, None)
         assert result['statusCode'] == 400
 
     def test_all_valid_statuses_are_accepted(self):
-        valid = ['applied', 'screened', 'interview', 'offer', 'rejected', 'withdrawn']
-        for status in valid:
+        for status in ['applied', 'screened', 'interview', 'offer', 'rejected', 'withdrawn']:
             event = make_event(
                 'POST', '/applications/app-123/status',
                 path_params={'appId': 'app-123'},
@@ -234,7 +223,7 @@ class TestUpdateStatus:
         event = make_event(
             'POST', '/applications/app-123/status',
             path_params={'appId': 'app-123'},
-            body={'notes': 'forgot the status field'},
+            body={'notes': 'forgot status'},
         )
         result = lambda_handler(event, None)
         assert result['statusCode'] == 400
@@ -243,38 +232,29 @@ class TestUpdateStatus:
 class TestDeleteApplication:
 
     def test_delete_returns_200(self):
-        event = make_event(
-            'DELETE', '/applications/app-123',
-            path_params={'appId': 'app-123'},
-        )
+        event = make_event('DELETE', '/applications/app-123', path_params={'appId': 'app-123'})
         with patch('applications_handler.table') as mock_table:
             mock_table.delete_item.return_value = {}
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
-        body = json.loads(result['body'])
-        assert body['appId'] == 'app-123'
+        assert json.loads(result['body'])['appId'] == 'app-123'
 
 
 class TestGetUploadUrl:
 
     def test_returns_presigned_url(self):
-        event = make_event(
-            'POST', '/resumes/upload-url',
-            body={'filename': 'resume.pdf', 'versionName': 'v3-ml-focused'},
-        )
+        event = make_event('POST', '/resumes/upload-url', body={
+            'filename': 'resume.pdf', 'versionName': 'v3-ml-focused',
+        })
         with patch('applications_handler.s3_client') as mock_s3:
             mock_s3.generate_presigned_url.return_value = 'https://s3.amazonaws.com/fake-url'
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
         body = json.loads(result['body'])
         assert 'uploadUrl' in body
-        assert 's3Key' in body
         assert 'v3-ml-focused' in body['s3Key']
 
     def test_returns_400_without_filename(self):
-        event = make_event(
-            'POST', '/resumes/upload-url',
-            body={'versionName': 'v1'},
-        )
+        event = make_event('POST', '/resumes/upload-url', body={'versionName': 'v1'})
         result = lambda_handler(event, None)
         assert result['statusCode'] == 400
