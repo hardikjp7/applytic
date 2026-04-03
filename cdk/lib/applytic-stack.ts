@@ -166,7 +166,7 @@ export class ApplyticStack extends cdk.Stack {
         effect: iam.Effect.ALLOW,
         actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
         resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0`,
+          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.*`,
         ],
       })
     );
@@ -203,7 +203,7 @@ export class ApplyticStack extends cdk.Stack {
         effect: iam.Effect.ALLOW,
         actions: ['bedrock:InvokeModel'],
         resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0`,
+          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.*`,
         ],
       })
     );
