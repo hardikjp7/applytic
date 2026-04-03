@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Bot, User } from 'lucide-react'
 import { chatWithCoach } from '../../lib/api'
+import type { Message } from '../../App'
 
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
+interface Props {
+  messages: Message[]
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>
 }
 
 const SUGGESTIONS = [
@@ -14,13 +15,7 @@ const SUGGESTIONS = [
   'What should I focus on this week?',
 ]
 
-export default function CoachChat() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content: "Hi! I'm your AI job search coach. I have access to your full application history and pattern data. Ask me anything — I'll give you specific advice based on your actual numbers.",
-    },
-  ])
+export default function CoachChat({ messages, setMessages }: Props) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -47,6 +42,8 @@ export default function CoachChat() {
       setLoading(false)
     }
   }
+
+  const isInitialState = messages.length === 1
 
   return (
     <div className="flex flex-col h-full p-6">
@@ -98,8 +95,8 @@ export default function CoachChat() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Suggestions */}
-      {messages.length === 1 && (
+      {/* Suggestions — only show on initial state */}
+      {isInitialState && (
         <div className="flex flex-wrap gap-2 mb-3">
           {SUGGESTIONS.map(s => (
             <button

@@ -115,7 +115,7 @@ export class ApplyticStack extends cdk.Stack {
       TABLE_NAME: table.tableName,
       RESUME_BUCKET: resumeBucket.bucketName,
       USER_POOL_ID: userPool.userPoolId,
-      BEDROCK_MODEL_ID: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+      BEDROCK_MODEL_ID: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
       POWERTOOLS_SERVICE_NAME: 'applytic',
       LOG_LEVEL: 'INFO',
     };
@@ -166,7 +166,7 @@ export class ApplyticStack extends cdk.Stack {
         effect: iam.Effect.ALLOW,
         actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
         resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0`,
+          `arn:aws:bedrock:${this.region}::inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0`,
         ],
       })
     );
@@ -203,7 +203,7 @@ export class ApplyticStack extends cdk.Stack {
         effect: iam.Effect.ALLOW,
         actions: ['bedrock:InvokeModel'],
         resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0`,
+          `arn:aws:bedrock:${this.region}::inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0`,
         ],
       })
     );
