@@ -14,7 +14,7 @@ os.environ.setdefault('AWS_SECRET_ACCESS_KEY', 'test')
 os.environ.setdefault('TABLE_NAME', 'applytic')
 os.environ.setdefault('RESUME_BUCKET', 'applytic-resumes-test')
 os.environ.setdefault('USER_POOL_ID', 'us-east-1_test')
-os.environ.setdefault('BEDROCK_MODEL_ID', 'anthropic.claude-3-7-sonnet-20250219-v1:0')
+os.environ.setdefault('BEDROCK_MODEL_ID', 'us.anthropic.claude-3-7-sonnet-20250219-v1:0')
 os.environ.setdefault('LOG_LEVEL', 'INFO')
 os.environ.setdefault('POWERTOOLS_SERVICE_NAME', 'applytic')
 

@@ -115,7 +115,7 @@ export class ApplyticStack extends cdk.Stack {
       TABLE_NAME: table.tableName,
       RESUME_BUCKET: resumeBucket.bucketName,
       USER_POOL_ID: userPool.userPoolId,
-      BEDROCK_MODEL_ID: 'anthropic.claude-3-7-sonnet-20250219-v1:0',
+      BEDROCK_MODEL_ID: 'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
       POWERTOOLS_SERVICE_NAME: 'applytic',
       LOG_LEVEL: 'INFO',
     };
