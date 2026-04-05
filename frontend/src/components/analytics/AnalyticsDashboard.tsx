@@ -136,22 +136,33 @@ export default function AnalyticsDashboard() {
           </ResponsiveContainer>
         </div>
 
-        {/* Status breakdown pie — fixed with taller container and bottom legend */}
+        {/* Status breakdown pie */}
         <div className={`${card} p-5`}>
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Status breakdown</p>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart margin={{ top: 10, right: 10, bottom: 0, left: 10 }}>
               <Pie
                 data={statusData}
                 dataKey="value"
                 nameKey="name"
                 cx="50%"
-                cy="42%"
-                outerRadius={80}
-                innerRadius={40}
+                cy="45%"
+                outerRadius={75}
+                innerRadius={38}
                 paddingAngle={2}
-                label={({ name, percent }) => `${Math.round(percent * 100)}%`}
                 labelLine={false}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                  if (percent < 0.05) return null
+                  const RADIAN = Math.PI / 180
+                  const radius = innerRadius + (outerRadius - innerRadius) * 0.5
+                  const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                  const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                  return (
+                    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={500}>
+                      {`${Math.round(percent * 100)}%`}
+                    </text>
+                  )
+                }}
               >
                 {statusData.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -160,10 +171,20 @@ export default function AnalyticsDashboard() {
               <Legend
                 iconType="circle"
                 iconSize={8}
-                wrapperStyle={{ fontSize: 11, paddingTop: 12 }}
-                formatter={(value) => <span style={{ color: 'currentColor' }}>{value}</span>}
+                layout="horizontal"
+                verticalAlign="bottom"
+                align="center"
+                wrapperStyle={{ fontSize: 11, paddingTop: 16 }}
+                formatter={(value, entry: any) => (
+                  <span style={{ color: entry.color }}>
+                    {value} ({entry.payload.value})
+                  </span>
+                )}
               />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                formatter={(value: number, name: string) => [`${value} apps`, name]}
+              />
             </PieChart>
           </ResponsiveContainer>
         </div>
