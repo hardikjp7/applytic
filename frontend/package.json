@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "deploy": "npm run build && aws s3 sync dist/ s3://$(aws cloudformation describe-stacks --stack-name ApplyticStack --query \"Stacks[0].Outputs[?OutputKey=='ResumeBucketName'].OutputValue\" --output text | sed 's/resumes/frontend/') --delete && aws cloudfront create-invalidation --distribution-id $(aws cloudformation describe-stacks --stack-name ApplyticStack --query \"Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue\" --output text) --paths '/*'"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@aws-amplify/ui-react": "^6.0.0",
@@ -20,7 +19,8 @@
     "react-router-dom": "^6.20.0",
     "react-hot-toast": "^2.4.1",
     "lucide-react": "^0.294.0",
-    "date-fns": "^3.0.0"
+    "date-fns": "^3.0.0",
+    "react-markdown": "^9.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
