@@ -198,7 +198,7 @@ def build_context_for_llm(apps: list, patterns: dict) -> str:
 # ── Bedrock chat ───────────────────────────────────────────────────────────────
 
 def chat_with_coach(user_message: str, context: str) -> str:
-    system_prompt = """You are a pragmatic, data-driven job search coach. 
+    system_prompt = """You are a pragmatic, data-driven job search coach.
 You have access to the user's actual application history and pattern analysis data.
 Give specific, actionable advice based on what the data actually shows.
 Be direct and honest. Don't pad responses with generic platitudes.
@@ -211,18 +211,35 @@ Keep responses under 250 words unless the user asks for something detailed."""
 
 My question: {user_message}"""
 
-    response = bedrock.invoke_model(
-        modelId=MODEL_ID,
-        body=json.dumps({
+    if "anthropic" in MODEL_ID:
+        body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
-        }),
+        }
+    else:
+        body = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"text": system_prompt + "\n\n" + user_prompt}],
+                }
+            ],
+            "inferenceConfig": {"maxTokens": 1024},
+        }
+
+    response = bedrock.invoke_model(
+        modelId=MODEL_ID,
+        body=json.dumps(body),
     )
 
     result = json.loads(response["body"].read())
-    return result["content"][0]["text"]
+
+    if "anthropic" in MODEL_ID:
+        return result["content"][0]["text"]
+    else:
+        return result["output"]["message"]["content"][0]["text"]
 
 
 # ── Router ─────────────────────────────────────────────────────────────────────
