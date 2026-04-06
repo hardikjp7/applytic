@@ -193,6 +193,27 @@ def get_upload_url(user_id: str, body: dict) -> dict:
     return resp(200, {"uploadUrl": url, "s3Key": s3_key, "versionName": version_name})
 
 
+def list_resumes(user_id: str) -> dict:
+    """List all resume versions uploaded by this user from S3."""
+    prefix = f"resumes/{user_id}/"
+    result = s3_client.list_objects_v2(Bucket=RESUME_BUCKET, Prefix=prefix)
+    resumes = []
+    for obj in result.get("Contents", []):
+        key = obj["Key"]
+        parts = key.replace(prefix, "").split("/")
+        if len(parts) >= 2:
+            version_name = parts[0]
+            filename = parts[1]
+            resumes.append({
+                "versionName": version_name,
+                "filename": filename,
+                "uploadedAt": obj["LastModified"].strftime("%Y-%m-%d"),
+                "s3Key": key,
+            })
+    resumes.sort(key=lambda x: x["uploadedAt"], reverse=True)
+    return resp(200, {"resumes": resumes})
+
+
 # ── Router ─────────────────────────────────────────────────────────────────────
 
 def lambda_handler(event: dict, context) -> dict:
@@ -218,6 +239,10 @@ def lambda_handler(event: dict, context) -> dict:
         # /resumes/upload-url
         if method == "POST" and path.endswith("/upload-url"):
             return get_upload_url(user_id, body)
+
+        # /resumes/list
+        if method == "GET" and path.endswith("/resumes/list"):
+            return list_resumes(user_id)
 
         # /applications/{appId}/status
         if method == "POST" and app_id and path.endswith("/status"):

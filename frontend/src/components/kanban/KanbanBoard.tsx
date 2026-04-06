@@ -4,6 +4,7 @@ import { Plus, ExternalLink, Trash2, Search, X, SlidersHorizontal } from 'lucide
 import { useApplications } from '../../hooks/useApplications'
 import AddApplicationModal from './AddApplicationModal'
 import ApplicationDetailModal from './ApplicationDetailModal'
+import ConfirmDialog from '../layout/ConfirmDialog'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_COLUMNS } from '../../lib/utils'
 import type { AppStatus, Application } from '../../types'
 
@@ -46,6 +47,7 @@ export default function KanbanBoard() {
   const { applications, loading, create, update, remove, changeStatus } = useApplications()
   const [showModal, setShowModal] = useState(false)
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<Application | null>(null)
   const [search, setSearch] = useState('')
   const [filterSource, setFilterSource] = useState('')
   const [showFilters, setShowFilters] = useState(false)
@@ -229,7 +231,7 @@ export default function KanbanBoard() {
                                     <ExternalLink size={13} />
                                   </a>
                                 )}
-                                <button onClick={e => { e.stopPropagation(); remove(app.appId) }} className="text-gray-300 hover:text-red-400">
+                                <button onClick={e => { e.stopPropagation(); setConfirmDelete(app) }} className="text-gray-300 hover:text-red-400">
                                   <Trash2 size={13} />
                                 </button>
                               </div>
@@ -262,6 +264,16 @@ export default function KanbanBoard() {
           onSave={(appId, data) => update(appId, data)}
           onDelete={(appId) => { remove(appId); setSelectedApp(null) }}
           onStatusChange={(appId, status) => changeStatus(appId, status)}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete application"
+          message={`Remove ${confirmDelete.company} — ${confirmDelete.role}? This cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => { remove(confirmDelete.appId); setConfirmDelete(null) }}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
     </div>

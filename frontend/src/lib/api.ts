@@ -59,6 +59,11 @@ export const uploadResumeToS3 = async (
   })
 }
 
+export const listResumes = async (): Promise<{ versionName: string; filename: string; uploadedAt: string }[]> => {
+  const res = await api.get('/resumes/list')
+  return res.data.resumes
+}
+
 // ── Insights ──────────────────────────────────────────────────────────────────
 
 export const getInsights = async (): Promise<Patterns> => {

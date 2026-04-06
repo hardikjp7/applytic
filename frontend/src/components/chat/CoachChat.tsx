@@ -38,8 +38,11 @@ export default function CoachChat({ messages, setMessages }: Props) {
     try {
       const res = await chatWithCoach(message)
       setMessages(prev => [...prev, { role: 'assistant', content: res.reply }])
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Try again in a moment.' }])
+    } catch (err: any) {
+      const msg = err?.response?.status === 429
+        ? 'You have reached the daily limit of 20 messages. Come back tomorrow!'
+        : 'Sorry, something went wrong. Try again in a moment.'
+      setMessages(prev => [...prev, { role: 'assistant', content: msg }])
     } finally {
       setLoading(false)
     }

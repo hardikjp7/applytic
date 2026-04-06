@@ -24,12 +24,13 @@ export const STATUS_COLUMNS: AppStatus[] = [
   'interview',
   'offer',
   'rejected',
+  'withdrawn',
 ]
 
 export const SOURCE_LABELS: Record<string, string> = {
-  linkedin:  'LinkedIn',
-  referral:  'Referral',
-  cold:      'Cold Apply',
+  linkedin:    'LinkedIn',
+  referral:    'Referral',
+  cold:        'Cold Apply',
   'job-board': 'Job Board',
-  unknown:   'Other',
+  unknown:     'Other',
 }

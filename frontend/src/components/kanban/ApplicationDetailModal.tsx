@@ -3,6 +3,7 @@ import { X, ExternalLink, Trash2, Save, Clock } from 'lucide-react'
 import type { Application, AppStatus } from '../../types'
 import { STATUS_LABELS, STATUS_COLORS, SOURCE_LABELS } from '../../lib/utils'
 import { formatDistanceToNow, format } from 'date-fns'
+import ConfirmDialog from '../layout/ConfirmDialog'
 
 interface Props {
   app: Application
@@ -17,6 +18,7 @@ const inp = 'w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg
 
 export default function ApplicationDetailModal({ app, onClose, onSave, onDelete, onStatusChange }: Props) {
   const [editing, setEditing] = useState(false)
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [form, setForm] = useState({
     company: app.company, role: app.role, source: app.source,
     resumeVersion: app.resumeVersion, companySize: app.companySize,
@@ -25,7 +27,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
   const handleSave = () => { onSave(app.appId, form); setEditing(false) }
-  const handleDelete = () => { if (window.confirm(`Delete application to ${app.company}?`)) { onDelete(app.appId); onClose() } }
+  const handleDelete = () => setShowConfirmDelete(true)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -129,6 +131,17 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
           </div>
         </div>
       </div>
+
+      {showConfirmDelete && (
+        <ConfirmDialog
+          title="Delete application"
+          message={`Remove ${app.company} — ${app.role}? This cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => { onDelete(app.appId); onClose() }}
+          onCancel={() => setShowConfirmDelete(false)}
+        />
+      )}
     </div>
   )
 }

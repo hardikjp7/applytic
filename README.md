@@ -1,5 +1,7 @@
 # Applytic
 
+![CI/CD](https://github.com/hardikjp7/applytic/actions/workflows/deploy.yml/badge.svg)
+
 > AI-powered job application tracker that learns from your rejections.
 
 **Live demo:** https://d3jumje9o63lys.cloudfront.net

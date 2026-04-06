@@ -15,6 +15,7 @@ bedrock = boto3.client("bedrock-runtime")
 
 TABLE_NAME = os.environ["TABLE_NAME"]
 MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
+CHAT_DAILY_LIMIT = int(os.environ.get("CHAT_DAILY_LIMIT", "20"))
 table = dynamodb.Table(TABLE_NAME)
 
 
@@ -35,6 +36,37 @@ def get_user_id(event: dict) -> str:
 
 def get_user_email(event: dict) -> str:
     return event["requestContext"]["authorizer"]["claims"].get("email", "")
+
+
+# ── Rate limiting ──────────────────────────────────────────────────────────────
+
+def check_rate_limit(user_id: str) -> tuple[bool, int]:
+    """
+    Returns (allowed, remaining_count).
+    Uses DynamoDB to track chat requests per user per day.
+    Key: RATELIMIT#userId, SK: DATE#YYYY-MM-DD
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    pk = f"RATELIMIT#{user_id}"
+    sk = f"DATE#{today}"
+
+    try:
+        result = table.update_item(
+            Key={"PK": pk, "SK": sk},
+            UpdateExpression="ADD #count :inc SET #ttl = :ttl",
+            ExpressionAttributeNames={"#count": "count", "#ttl": "ttl"},
+            ExpressionAttributeValues={
+                ":inc": 1,
+                ":ttl": int((datetime.now(timezone.utc) + timedelta(days=2)).timestamp()),
+            },
+            ReturnValues="UPDATED_NEW",
+        )
+        count = int(result["Attributes"]["count"])
+        remaining = max(0, CHAT_DAILY_LIMIT - count)
+        return count <= CHAT_DAILY_LIMIT, remaining
+    except Exception as e:
+        print(f"Rate limit check failed (allowing): {e}")
+        return True, CHAT_DAILY_LIMIT
 
 
 # ── Fetch all applications for a user ─────────────────────────────────────────
@@ -280,9 +312,17 @@ def lambda_handler(event: dict, context) -> dict:
                     "dataInsufficient": True,
                 })
 
+            # Rate limiting — 20 chats per user per day
+            allowed, remaining = check_rate_limit(user_id)
+            if not allowed:
+                return resp(429, {
+                    "error": "Daily chat limit reached. You can send up to 20 messages per day.",
+                    "rateLimited": True,
+                })
+
             context_str = build_context_for_llm(apps, patterns)
             reply = chat_with_coach(user_message, context_str)
-            return resp(200, {"reply": reply, "patterns": patterns})
+            return resp(200, {"reply": reply, "patterns": patterns, "remainingChats": remaining})
 
         return resp(404, {"error": "Route not found"})
 

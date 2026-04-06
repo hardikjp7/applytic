@@ -7,6 +7,7 @@ import './lib/amplify'
 import { getInitialTheme, applyTheme } from './lib/theme'
 
 import Sidebar from './components/layout/Sidebar'
+import ErrorBoundary from './components/layout/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import KanbanBoard from './components/kanban/KanbanBoard'
 import AnalyticsDashboard from './components/analytics/AnalyticsDashboard'
@@ -72,15 +73,17 @@ export default function App() {
               </div>
 
               <main className="flex-1 overflow-y-auto">
-                <Routes>
-                  <Route path="/"          element={<Dashboard />} />
-                  <Route path="/board"     element={<KanbanBoard />} />
-                  <Route path="/analytics" element={<AnalyticsDashboard />} />
-                  <Route path="/coach"     element={
-                    <CoachChat messages={chatHistory} setMessages={setChatHistory} />
-                  } />
-                  <Route path="/resumes"   element={<ResumeUpload />} />
-                </Routes>
+                <ErrorBoundary>
+                  <Routes>
+                    <Route path="/"          element={<Dashboard />} />
+                    <Route path="/board"     element={<KanbanBoard />} />
+                    <Route path="/analytics" element={<AnalyticsDashboard />} />
+                    <Route path="/coach"     element={
+                      <CoachChat messages={chatHistory} setMessages={setChatHistory} />
+                    } />
+                    <Route path="/resumes"   element={<ResumeUpload />} />
+                  </Routes>
+                </ErrorBoundary>
               </main>
             </div>
           </div>
