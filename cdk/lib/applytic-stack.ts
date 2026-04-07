@@ -203,6 +203,13 @@ export class ApplyticStack extends cdk.Stack {
         resources: ['*'],
       })
     );
+    digestLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['cognito-idp:AdminGetUser'],
+        resources: [userPool.userPoolArn],
+      })
+    );
 
     // ─── EventBridge: Monday 8am digest cron ──────────────────────────────────
     new events.Rule(this, 'WeeklyDigestRule', {
