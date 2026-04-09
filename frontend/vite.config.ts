@@ -6,4 +6,18 @@ export default defineConfig({
   resolve: {
     alias: { '@': '/src' },
   },
+  build: {
+    // Generate source maps for debugging
+    sourcemap: false,
+    // Chunk splitting for better caching
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          aws: ['aws-amplify', '@aws-amplify/ui-react'],
+          charts: ['recharts'],
+        },
+      },
+    },
+  },
 })

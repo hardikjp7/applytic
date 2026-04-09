@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0f0e1a"/>
+  <rect x="0" y="0" width="1200" height="630" fill="url(#bg)"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1a1830"/>
+      <stop offset="100%" stop-color="#0d0c1a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Logo circle -->
+  <rect x="80" y="200" width="72" height="72" rx="16" fill="#534ab7"/>
+  <text x="116" y="248" font-family="system-ui,sans-serif" font-size="40" font-weight="700" fill="white" text-anchor="middle">A</text>
+
+  <!-- App name -->
+  <text x="174" y="254" font-family="system-ui,sans-serif" font-size="48" font-weight="700" fill="white">applytic</text>
+
+  <!-- Tagline -->
+  <text x="80" y="330" font-family="system-ui,sans-serif" font-size="28" fill="#9d97e8">AI-powered job application tracker</text>
+  <text x="80" y="372" font-family="system-ui,sans-serif" font-size="28" fill="#9d97e8">that learns from your rejections.</text>
+
+  <!-- Feature pills -->
+  <rect x="80" y="430" width="220" height="44" rx="22" fill="#534ab7" fill-opacity="0.3"/>
+  <text x="190" y="457" font-family="system-ui,sans-serif" font-size="18" fill="#a89ff0" text-anchor="middle">Pattern Analysis</text>
+
+  <rect x="318" y="430" width="180" height="44" rx="22" fill="#534ab7" fill-opacity="0.3"/>
+  <text x="408" y="457" font-family="system-ui,sans-serif" font-size="18" fill="#a89ff0" text-anchor="middle">AI Coaching</text>
+
+  <rect x="514" y="430" width="220" height="44" rx="22" fill="#534ab7" fill-opacity="0.3"/>
+  <text x="624" y="457" font-family="system-ui,sans-serif" font-size="18" fill="#a89ff0" text-anchor="middle">Resume Tracking</text>
+
+  <rect x="750" y="430" width="200" height="44" rx="22" fill="#534ab7" fill-opacity="0.3"/>
+  <text x="850" y="457" font-family="system-ui,sans-serif" font-size="18" fill="#a89ff0" text-anchor="middle">Built on AWS</text>
+
+  <!-- Author -->
+  <text x="80" y="560" font-family="system-ui,sans-serif" font-size="20" fill="#534ab7">github.com/hardikjp7</text>
+
+  <!-- URL -->
+  <text x="1120" y="560" font-family="system-ui,sans-serif" font-size="20" fill="#534ab7" text-anchor="end">d3jumje9o63lys.cloudfront.net</text>
+</svg>
