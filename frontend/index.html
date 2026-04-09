@@ -10,11 +10,11 @@
     <meta name="keywords" content="Applytic, hardikjp7, Hardik, job application tracker, AI job search, AWS portfolio project, Amazon Bedrock, job search analytics, resume tracker, job rejection patterns, serverless AWS" />
     <meta name="author" content="Hardik — github.com/hardikjp7" />
     <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://d3jumje9o63lys.cloudfront.net" />
+    <link rel="canonical" href="https://hardikjp7.github.io/applytic" />
 
     <!-- Open Graph (LinkedIn, Facebook previews) -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://d3jumje9o63lys.cloudfront.net" />
+    <meta property="og:url" content="https://hardikjp7.github.io/applytic" />
     <meta property="og:title" content="Applytic — AI-Powered Job Application Tracker" />
     <meta property="og:description" content="Track every job application, detect rejection patterns across resume versions and source channels, and get AI coaching powered by Amazon Bedrock. Built end-to-end on AWS by Hardik (hardikjp7)." />
     <meta property="og:image" content="https://d3jumje9o63lys.cloudfront.net/og-image.png" />
@@ -25,7 +25,7 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:url" content="https://d3jumje9o63lys.cloudfront.net" />
+    <meta name="twitter:url" content="https://hardikjp7.github.io/applytic" />
     <meta name="twitter:title" content="Applytic — AI-Powered Job Application Tracker" />
     <meta name="twitter:description" content="Track every job application, detect rejection patterns, and get AI coaching powered by Amazon Bedrock. Built on AWS by Hardik (hardikjp7)." />
     <meta name="twitter:image" content="https://d3jumje9o63lys.cloudfront.net/og-image.png" />
@@ -72,6 +72,19 @@
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- GitHub Pages SPA routing fix -->
+    <script>
+      (function() {
+        var redirect = sessionStorage.getItem('redirect');
+        if (redirect) {
+          sessionStorage.removeItem('redirect');
+          if (redirect !== '/') {
+            window.history.replaceState(null, null, redirect);
+          }
+        }
+      })();
+    </script>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

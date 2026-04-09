@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://d3jumje9o63lys.cloudfront.net/sitemap.xml
+Sitemap: https://hardikjp7.github.io/applytic/sitemap.xml

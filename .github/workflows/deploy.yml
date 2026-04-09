@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 env:
   AWS_REGION: us-east-1
   FRONTEND_BUCKET: applytic-frontend-298199649406
@@ -69,9 +74,9 @@ jobs:
           cd cdk
           cdk deploy --require-approval never
 
-  # ── Job 3: Deploy frontend (S3 + CloudFront) ────────────────────────────────
-  deploy-frontend:
-    name: Deploy frontend
+  # ── Job 3: Deploy frontend to S3 + CloudFront ────────────────────────────────
+  deploy-frontend-aws:
+    name: Deploy frontend to AWS
     runs-on: ubuntu-latest
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -97,7 +102,7 @@ jobs:
           cd frontend
           npm install
 
-      - name: Build frontend
+      - name: Build frontend (CloudFront — base path /)
         run: |
           cd frontend
           npm run build
@@ -106,6 +111,7 @@ jobs:
           VITE_USER_POOL_ID: ${{ secrets.VITE_USER_POOL_ID }}
           VITE_USER_POOL_CLIENT_ID: ${{ secrets.VITE_USER_POOL_CLIENT_ID }}
           VITE_AWS_REGION: ${{ env.AWS_REGION }}
+          VITE_BASE_PATH: /
 
       - name: Deploy to S3
         run: |
@@ -116,3 +122,50 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} \
             --paths "/*"
+
+  # ── Job 4: Deploy frontend to GitHub Pages ───────────────────────────────────
+  deploy-frontend-pages:
+    name: Deploy frontend to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Build frontend (GitHub Pages — base path /applytic/)
+        run: |
+          cd frontend
+          npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_USER_POOL_ID: ${{ secrets.VITE_USER_POOL_ID }}
+          VITE_USER_POOL_CLIENT_ID: ${{ secrets.VITE_USER_POOL_CLIENT_ID }}
+          VITE_AWS_REGION: us-east-1
+          VITE_BASE_PATH: /applytic/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
