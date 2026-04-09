@@ -98,14 +98,24 @@ Weekly tip:"""
 
     response = bedrock.invoke_model(
         modelId=MODEL_ID,
-        body=json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 200,
-            "messages": [{"role": "user", "content": prompt}],
-        }),
+        body=json.dumps(
+            {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            if "anthropic" in MODEL_ID else
+            {
+                "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                "inferenceConfig": {"maxTokens": 200},
+            }
+        ),
     )
     result = json.loads(response["body"].read())
-    return result["content"][0]["text"].strip()
+    if "anthropic" in MODEL_ID:
+        return result["content"][0]["text"].strip()
+    else:
+        return result["output"]["message"]["content"][0]["text"].strip()
 
 
 # ── Build and send email ───────────────────────────────────────────────────────
