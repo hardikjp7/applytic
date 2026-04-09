@@ -37,10 +37,14 @@ export default function App() {
 
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
 
+  // Use the Vite base path so React Router works on both
+  // CloudFront (base = /) and GitHub Pages (base = /applytic/)
+  const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/'
+
   return (
     <Authenticator>
       {() => (
-        <BrowserRouter>
+        <BrowserRouter basename={basename}>
           <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
             {/* Mobile overlay */}
             {sidebarOpen && (
