@@ -4,7 +4,11 @@
 
 > AI-powered job application tracker that learns from your rejections.
 
-**Live demo:** https://d3jumje9o63lys.cloudfront.net
+**Live demo:** https://hardikjp7.github.io/applytic
+
+<p align="center">
+  <img src="applytic.gif" alt="Applytic Demo" width="800"/>
+</p>
 
 Applytic tracks every job application you submit, detects patterns across rejections (which resume version converts best, which source channel works, which company sizes respond), and uses Amazon Bedrock to turn that data into actionable coaching — delivered as a chat interface and a weekly email digest.
 
@@ -22,7 +26,9 @@ So I instrumented my own job search. Every application became a data point. Afte
 
 ## Architecture
 
-![Architecture Diagram](architecture.png)
+<p align="center">
+  <img src="architecture.png" alt="Applytic Architecture" width="800"/>
+</p>
 
 ---
 
