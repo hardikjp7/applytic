@@ -300,6 +300,13 @@ Fix: replaced external labels with a custom render function that draws white per
 
 ---
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, branching conventions, and the PR process.
+
+---
+
 ## Author
 
 **Hardik** — [Github](https://github.com/hardikjp7)
+
