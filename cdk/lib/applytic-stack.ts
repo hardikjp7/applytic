@@ -11,6 +11,10 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -26,6 +30,9 @@ export class ApplyticStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       pointInTimeRecovery: true,
+      // v1.1: Enable TTL for rate limit record auto-cleanup
+      // The 'ttl' attribute is already written by the rate limiter in insights Lambda
+      timeToLiveAttribute: 'ttl',
     });
 
     // GSI: query all apps by user sorted by date
@@ -82,6 +89,9 @@ export class ApplyticStack extends cdk.Stack {
       ],
     });
 
+    // v1.1: The CloudFront domain is used to tighten CORS below
+    const cloudfrontDomain = `https://${distribution.distributionDomainName}`;
+
     // ─── Cognito ──────────────────────────────────────────────────────────────
     const userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: 'applytic-users',
@@ -106,7 +116,7 @@ export class ApplyticStack extends cdk.Stack {
       oAuth: {
         flows: { implicitCodeGrant: true },
         scopes: [cognito.OAuthScope.EMAIL, cognito.OAuthScope.OPENID],
-        callbackUrls: [`https://${distribution.distributionDomainName}`],
+        callbackUrls: [cloudfrontDomain],
       },
     });
 
@@ -184,7 +194,7 @@ export class ApplyticStack extends cdk.Stack {
       description: 'Weekly email digest via SES',
       environment: {
         ...commonEnv,
-        SES_FROM_EMAIL: 'hardikjparmar7@gmail.com', // replace after SES verification
+        SES_FROM_EMAIL: 'hardikjparmar7@gmail.com',
       },
     });
 
@@ -223,14 +233,102 @@ export class ApplyticStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(digestLambda)],
     });
 
+    // ─── SNS topic for CloudWatch alarm notifications (v1.1) ─────────────────
+    const alarmTopic = new sns.Topic(this, 'AlarmTopic', {
+      topicName: 'applytic-alarms',
+      displayName: 'Applytic CloudWatch Alarms',
+    });
+
+    // Subscribe your email to receive alarm notifications
+    alarmTopic.addSubscription(
+      new snsSubscriptions.EmailSubscription('hardikjparmar7@gmail.com')
+    );
+
+    // ─── CloudWatch alarms (v1.1) ─────────────────────────────────────────────
+
+    // Applications Lambda — error rate alarm
+    new cloudwatch.Alarm(this, 'ApplicationsLambdaErrorAlarm', {
+      alarmName: 'applytic-applications-errors',
+      alarmDescription: 'Applications Lambda error rate > 5 in 5 minutes',
+      metric: applicationsLambda.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    // Insights Lambda — error rate alarm
+    new cloudwatch.Alarm(this, 'InsightsLambdaErrorAlarm', {
+      alarmName: 'applytic-insights-errors',
+      alarmDescription: 'Insights Lambda error rate > 5 in 5 minutes',
+      metric: insightsLambda.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    // Digest Lambda — error alarm (any error is noteworthy for a scheduled job)
+    new cloudwatch.Alarm(this, 'DigestLambdaErrorAlarm', {
+      alarmName: 'applytic-digest-errors',
+      alarmDescription: 'Digest Lambda failed — weekly email may not have sent',
+      metric: digestLambda.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    // Applications Lambda — p99 latency alarm
+    new cloudwatch.Alarm(this, 'ApplicationsLambdaP99Alarm', {
+      alarmName: 'applytic-applications-p99-latency',
+      alarmDescription: 'Applications Lambda p99 latency > 10s',
+      metric: applicationsLambda.metricDuration({
+        period: cdk.Duration.minutes(5),
+        statistic: 'p99',
+      }),
+      threshold: 10000, // milliseconds
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    // Insights Lambda — p99 latency alarm (higher threshold — Bedrock calls are slow)
+    new cloudwatch.Alarm(this, 'InsightsLambdaP99Alarm', {
+      alarmName: 'applytic-insights-p99-latency',
+      alarmDescription: 'Insights Lambda p99 latency > 30s (Bedrock timeout risk)',
+      metric: insightsLambda.metricDuration({
+        period: cdk.Duration.minutes(5),
+        statistic: 'p99',
+      }),
+      threshold: 30000, // milliseconds
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
     // ─── API Gateway ──────────────────────────────────────────────────────────
     const api = new apigateway.RestApi(this, 'ApplyticApi', {
       restApiName: 'applytic-api',
       description: 'Job tracker REST API',
+      // v1.1: CORS tightened to specific CloudFront domain instead of ALL_ORIGINS
       defaultCorsPreflightOptions: {
-        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowOrigins: [
+          cloudfrontDomain,
+          'https://hardikjp7.github.io', // GitHub Pages origin
+        ],
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],
+        maxAge: cdk.Duration.hours(1),
       },
       deployOptions: {
         stageName: 'v1',
@@ -333,7 +431,7 @@ export class ApplyticStack extends cdk.Stack {
       description: 'REST API base URL',
     });
     new cdk.CfnOutput(this, 'FrontendUrl', {
-      value: `https://${distribution.distributionDomainName}`,
+      value: cloudfrontDomain,
       description: 'CloudFront frontend URL',
     });
     new cdk.CfnOutput(this, 'UserPoolId', {
@@ -344,6 +442,10 @@ export class ApplyticStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'ResumeBucketName', {
       value: resumeBucket.bucketName,
+    });
+    new cdk.CfnOutput(this, 'AlarmTopicArn', {
+      value: alarmTopic.topicArn,
+      description: 'SNS topic ARN for CloudWatch alarm notifications',
     });
   }
 }
