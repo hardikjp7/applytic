@@ -1,0 +1,71 @@
+version: 2
+
+updates:
+  # CDK dependencies
+  - package-ecosystem: npm
+    directory: /cdk
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - chore
+    commit-message:
+      prefix: 'chore(cdk)'
+
+  # Frontend dependencies
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - chore
+    commit-message:
+      prefix: 'chore(frontend)'
+    # Group patch/minor updates to reduce PR noise
+    groups:
+      aws-amplify:
+        patterns:
+          - 'aws-amplify'
+          - '@aws-amplify/*'
+      react-ecosystem:
+        patterns:
+          - 'react'
+          - 'react-dom'
+          - 'react-router-dom'
+          - '@types/react'
+          - '@types/react-dom'
+
+  # Lambda Python dependencies
+  - package-ecosystem: pip
+    directory: /lambdas
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - chore
+    commit-message:
+      prefix: 'chore(lambda)'
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - chore
+    commit-message:
+      prefix: 'chore(ci)'
