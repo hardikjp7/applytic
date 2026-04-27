@@ -13,7 +13,7 @@
     "aws-amplify": "^6.0.0",
     "axios": "^1.6.0",
     "@hello-pangea/dnd": "^16.3.0",
-    "recharts": "^2.10.0",
+    "recharts": "^3.8.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0",
