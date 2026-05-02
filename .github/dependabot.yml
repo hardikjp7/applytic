@@ -5,7 +5,7 @@ updates:
   - package-ecosystem: npm
     directory: /cdk
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
       time: '09:00'
     open-pull-requests-limit: 5
@@ -19,7 +19,7 @@ updates:
   - package-ecosystem: npm
     directory: /frontend
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
       time: '09:00'
     open-pull-requests-limit: 5
@@ -28,7 +28,6 @@ updates:
       - chore
     commit-message:
       prefix: 'chore(frontend)'
-    # Group patch/minor updates to reduce PR noise
     groups:
       aws-amplify:
         patterns:
@@ -46,7 +45,7 @@ updates:
   - package-ecosystem: pip
     directory: /lambdas
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
       time: '09:00'
     open-pull-requests-limit: 5
@@ -60,7 +59,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
       time: '09:00'
     open-pull-requests-limit: 5
