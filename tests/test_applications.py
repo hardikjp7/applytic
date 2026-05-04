@@ -70,7 +70,18 @@ def _resp(status, body, event=None):
 shared_mw.resp = _resp
 shared_mw.get_user_id = lambda event: event["requestContext"]["authorizer"]["claims"]["sub"]
 shared_mw.get_user_email = lambda event: event["requestContext"]["authorizer"]["claims"].get("email", "")
-shared_mw.parse_body = lambda event: (json.loads(event["body"]) if event.get("body") else {}, None)
+
+def _mock_parse_body(event):
+    raw = event.get("body")
+    if not raw:
+        return {}, None
+    try:
+        return json.loads(raw), None
+    except (json.JSONDecodeError, TypeError):
+        return {}, shared_mw.resp(400, {"error": "Invalid JSON body"}, event)
+
+shared_mw.parse_body = _mock_parse_body
+
 shared_mw.now_iso = lambda: "2024-01-01T00:00:00+00:00"
 shared_mw.with_middleware = lambda fn: fn
 sys.modules["shared"] = shared_pkg
@@ -119,12 +130,9 @@ class TestRouter:
             assert lambda_handler(event, None)['statusCode'] == 404
 
     def test_invalid_json_body_returns_400(self):
-        original = shared_mw.parse_body
-        shared_mw.parse_body = lambda e: ({}, _resp(400, {"error": "Invalid JSON body"}, e))
         event = make_event('POST', '/applications')
         event['body'] = 'not-json'
         result = lambda_handler(event, None)
-        shared_mw.parse_body = original
         assert result['statusCode'] == 400
 
     def test_missing_auth_returns_401(self):
