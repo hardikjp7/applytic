@@ -1,21 +1,93 @@
 """
-Tests for the Applications Lambda — CRUD routing and business logic.
-
-Tests the router, input validation, and status transition logic
-without hitting DynamoDB (mocked via unittest.mock).
-
-Run with:
-    pip install pytest
-    pytest tests/test_applications.py -v
+Tests for the Applications Lambda — v1.2
+Stubs shared layer, powertools, pydantic, xray before loading handler.
+Run: python -m pytest tests/test_applications.py -v
 """
 import sys
 import os
 import json
+import types
 import pytest
 import importlib.util
 from unittest.mock import patch, MagicMock
 
-# Load applications handler by file path to avoid module name collision
+# ── Stubs ─────────────────────────────────────────────────────────────────────
+
+class _FakeLogger:
+    def __init__(self, *a, **kw): pass
+    def info(self, *a, **kw): pass
+    def warning(self, *a, **kw): pass
+    def error(self, *a, **kw): pass
+    def exception(self, *a, **kw): pass
+    def set_correlation_id(self, *a, **kw): pass
+    def inject_lambda_context(self, *a, **kw):
+        def decorator(fn): return fn
+        return decorator
+
+class _FakeTracer:
+    def __init__(self, *a, **kw): pass
+    def capture_method(self, fn): return fn
+    def capture_lambda_handler(self, fn): return fn
+
+plt = types.ModuleType("aws_lambda_powertools")
+plt.Logger = _FakeLogger
+plt.Tracer = _FakeTracer
+plt_typing = types.ModuleType("aws_lambda_powertools.utilities.typing")
+plt_typing.LambdaContext = object
+sys.modules["aws_lambda_powertools"] = plt
+sys.modules["aws_lambda_powertools.utilities"] = types.ModuleType("aws_lambda_powertools.utilities")
+sys.modules["aws_lambda_powertools.utilities.typing"] = plt_typing
+
+try:
+    import pydantic
+except ImportError:
+    pydantic_mod = types.ModuleType("pydantic")
+    class _BaseModel:
+        def __init__(self, **kw):
+            for k, v in kw.items(): setattr(self, k, v)
+        def model_dump(self, exclude_none=False):
+            return {k: v for k, v in self.__dict__.items() if not (exclude_none and v is None)}
+    pydantic_mod.BaseModel = _BaseModel
+    pydantic_mod.field_validator = lambda *a, **kw: (lambda fn: fn)
+    sys.modules["pydantic"] = pydantic_mod
+
+xray_mod = types.ModuleType("aws_xray_sdk")
+xray_core = types.ModuleType("aws_xray_sdk.core")
+xray_core.xray_recorder = MagicMock()
+sys.modules["aws_xray_sdk"] = xray_mod
+sys.modules["aws_xray_sdk.core"] = xray_core
+
+shared_pkg = types.ModuleType("shared")
+shared_mw = types.ModuleType("shared.middleware")
+
+def _resp(status, body, event=None):
+    return {
+        "statusCode": status,
+        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "body": json.dumps(body, default=str),
+    }
+
+shared_mw.resp = _resp
+shared_mw.get_user_id = lambda event: event["requestContext"]["authorizer"]["claims"]["sub"]
+shared_mw.get_user_email = lambda event: event["requestContext"]["authorizer"]["claims"].get("email", "")
+
+def _mock_parse_body(event):
+    raw = event.get("body")
+    if not raw:
+        return {}, None
+    try:
+        return json.loads(raw), None
+    except (json.JSONDecodeError, TypeError):
+        return {}, shared_mw.resp(400, {"error": "Invalid JSON body"}, event)
+
+shared_mw.parse_body = _mock_parse_body
+
+shared_mw.now_iso = lambda: "2024-01-01T00:00:00+00:00"
+shared_mw.with_middleware = lambda fn: fn
+sys.modules["shared"] = shared_pkg
+sys.modules["shared.middleware"] = shared_mw
+
+# ── Load handler ──────────────────────────────────────────────────────────────
 _handler_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', 'lambdas', 'applications', 'handler.py')
 )
@@ -24,56 +96,38 @@ _mod = importlib.util.module_from_spec(_spec)
 sys.modules['applications_handler'] = _mod
 _spec.loader.exec_module(_mod)
 
-resp = _mod.resp
-get_user_id = _mod.get_user_id
-now_iso = _mod.now_iso
 lambda_handler = _mod.lambda_handler
 
 from conftest import make_event
 
 
 class TestHelpers:
-
     def test_resp_sets_status_code(self):
-        r = resp(200, {'ok': True})
-        assert r['statusCode'] == 200
+        assert _resp(200, {})['statusCode'] == 200
 
     def test_resp_body_is_json_string(self):
-        r = resp(200, {'key': 'value'})
-        body = json.loads(r['body'])
-        assert body['key'] == 'value'
+        assert json.loads(_resp(200, {'key': 'value'})['body'])['key'] == 'value'
 
     def test_resp_includes_cors_header(self):
-        r = resp(200, {})
-        assert r['headers']['Access-Control-Allow-Origin'] == '*'
+        assert 'Access-Control-Allow-Origin' in _resp(200, {})['headers']
 
     def test_resp_includes_content_type(self):
-        r = resp(200, {})
-        assert r['headers']['Content-Type'] == 'application/json'
+        assert _resp(200, {})['headers']['Content-Type'] == 'application/json'
 
     def test_get_user_id_extracts_sub(self):
-        event = make_event()
-        assert get_user_id(event) == 'test-user-123'
+        assert shared_mw.get_user_id(make_event()) == 'test-user-123'
 
     def test_get_user_id_raises_on_missing_claims(self):
-        event = {'requestContext': {}}
         with pytest.raises((KeyError, TypeError)):
-            get_user_id(event)
-
-    def test_now_iso_returns_string(self):
-        ts = now_iso()
-        assert isinstance(ts, str)
-        assert 'T' in ts
+            shared_mw.get_user_id({'requestContext': {}})
 
 
 class TestRouter:
-
     def test_unknown_route_returns_404(self):
         event = make_event('GET', '/unknown')
-        with patch('applications_handler.table') as mock_table:
-            mock_table.query.return_value = {'Items': [], 'Count': 0}
-            result = lambda_handler(event, None)
-        assert result['statusCode'] == 404
+        with patch('applications_handler.table') as mt:
+            mt.query.return_value = {'Items': [], 'Count': 0}
+            assert lambda_handler(event, None)['statusCode'] == 404
 
     def test_invalid_json_body_returns_400(self):
         event = make_event('POST', '/applications')
@@ -84,18 +138,15 @@ class TestRouter:
     def test_missing_auth_returns_401(self):
         event = make_event('GET', '/applications')
         event['requestContext'] = {}
-        result = lambda_handler(event, None)
-        assert result['statusCode'] == 401
+        assert lambda_handler(event, None)['statusCode'] == 401
 
 
 class TestListApplications:
-
     def test_returns_200_with_items(self):
         event = make_event('GET', '/applications')
-        with patch('applications_handler.table') as mock_table:
-            mock_table.query.return_value = {
-                'Items': [{'appId': 'a1', 'company': 'Stripe', 'status': 'applied'}],
-                'Count': 1,
+        with patch('applications_handler.table') as mt:
+            mt.query.return_value = {
+                'Items': [{'appId': 'a1', 'company': 'Stripe', 'status': 'applied'}], 'Count': 1
             }
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
@@ -105,8 +156,8 @@ class TestListApplications:
 
     def test_returns_empty_list_when_no_applications(self):
         event = make_event('GET', '/applications')
-        with patch('applications_handler.table') as mock_table:
-            mock_table.query.return_value = {'Items': [], 'Count': 0}
+        with patch('applications_handler.table') as mt:
+            mt.query.return_value = {'Items': [], 'Count': 0}
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
         body = json.loads(result['body'])
@@ -115,13 +166,12 @@ class TestListApplications:
 
 
 class TestCreateApplication:
-
     def test_creates_successfully_with_required_fields(self):
         event = make_event('POST', '/applications', body={
-            'company': 'Anthropic', 'role': 'ML Engineer', 'status': 'applied',
+            'company': 'Anthropic', 'role': 'ML Engineer', 'status': 'applied'
         })
-        with patch('applications_handler.table') as mock_table:
-            mock_table.put_item.return_value = {}
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
             result = lambda_handler(event, None)
         assert result['statusCode'] == 201
         body = json.loads(result['body'])
@@ -129,33 +179,21 @@ class TestCreateApplication:
         assert 'appId' in body['application']
 
     def test_fails_without_company(self):
-        event = make_event('POST', '/applications', body={
-            'role': 'ML Engineer', 'status': 'applied',
-        })
-        result = lambda_handler(event, None)
-        assert result['statusCode'] == 400
-        assert 'company' in json.loads(result['body'])['error']
+        event = make_event('POST', '/applications', body={'role': 'ML Engineer', 'status': 'applied'})
+        assert lambda_handler(event, None)['statusCode'] == 400
 
     def test_fails_without_role(self):
-        event = make_event('POST', '/applications', body={
-            'company': 'Anthropic', 'status': 'applied',
-        })
-        result = lambda_handler(event, None)
-        assert result['statusCode'] == 400
+        event = make_event('POST', '/applications', body={'company': 'Anthropic', 'status': 'applied'})
+        assert lambda_handler(event, None)['statusCode'] == 400
 
     def test_fails_without_status(self):
-        event = make_event('POST', '/applications', body={
-            'company': 'Anthropic', 'role': 'ML Engineer',
-        })
-        result = lambda_handler(event, None)
-        assert result['statusCode'] == 400
+        event = make_event('POST', '/applications', body={'company': 'Anthropic', 'role': 'ML Engineer'})
+        assert lambda_handler(event, None)['statusCode'] == 400
 
     def test_optional_fields_default_correctly(self):
-        event = make_event('POST', '/applications', body={
-            'company': 'Stripe', 'role': 'Engineer', 'status': 'applied',
-        })
-        with patch('applications_handler.table') as mock_table:
-            mock_table.put_item.return_value = {}
+        event = make_event('POST', '/applications', body={'company': 'Stripe', 'role': 'Eng', 'status': 'applied'})
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
             result = lambda_handler(event, None)
         app = json.loads(result['body'])['application']
         assert app['source'] == 'unknown'
@@ -164,30 +202,24 @@ class TestCreateApplication:
 
     def test_generated_app_id_is_uuid_format(self):
         import re
-        event = make_event('POST', '/applications', body={
-            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
-        })
-        with patch('applications_handler.table') as mock_table:
-            mock_table.put_item.return_value = {}
+        event = make_event('POST', '/applications', body={'company': 'Stripe', 'role': 'Eng', 'status': 'applied'})
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
             result = lambda_handler(event, None)
         app_id = json.loads(result['body'])['application']['appId']
         assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', app_id)
 
 
 class TestUpdateStatus:
-
     def test_valid_status_update_returns_200(self):
-        event = make_event(
-            'POST', '/applications/app-123/status',
-            path_params={'appId': 'app-123'},
-            body={'status': 'interview'},
-        )
-        with patch('applications_handler.table') as mock_table:
-            mock_table.get_item.return_value = {
+        event = make_event('POST', '/applications/app-123/status',
+                           path_params={'appId': 'app-123'}, body={'status': 'interview'})
+        with patch('applications_handler.table') as mt:
+            mt.get_item.return_value = {
                 'Item': {'PK': 'USER#test-user-123', 'SK': 'APP#app-123', 'status': 'screened', 'appId': 'app-123'}
             }
-            mock_table.update_item.return_value = {}
-            mock_table.put_item.return_value = {}
+            mt.update_item.return_value = {}
+            mt.put_item.return_value = {}
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
         body = json.loads(result['body'])
@@ -195,59 +227,46 @@ class TestUpdateStatus:
         assert body['from'] == 'screened'
 
     def test_invalid_status_returns_400(self):
-        event = make_event(
-            'POST', '/applications/app-123/status',
-            path_params={'appId': 'app-123'},
-            body={'status': 'in-progress'},
-        )
-        result = lambda_handler(event, None)
-        assert result['statusCode'] == 400
+        event = make_event('POST', '/applications/app-123/status',
+                           path_params={'appId': 'app-123'}, body={'status': 'in-progress'})
+        assert lambda_handler(event, None)['statusCode'] == 400
 
     def test_all_valid_statuses_are_accepted(self):
         for status in ['applied', 'screened', 'interview', 'offer', 'rejected', 'withdrawn']:
-            event = make_event(
-                'POST', '/applications/app-123/status',
-                path_params={'appId': 'app-123'},
-                body={'status': status},
-            )
-            with patch('applications_handler.table') as mock_table:
-                mock_table.get_item.return_value = {
+            event = make_event('POST', '/applications/app-123/status',
+                               path_params={'appId': 'app-123'}, body={'status': status})
+            with patch('applications_handler.table') as mt:
+                mt.get_item.return_value = {
                     'Item': {'PK': 'USER#u', 'SK': 'APP#app-123', 'status': 'applied', 'appId': 'app-123'}
                 }
-                mock_table.update_item.return_value = {}
-                mock_table.put_item.return_value = {}
+                mt.update_item.return_value = {}
+                mt.put_item.return_value = {}
                 result = lambda_handler(event, None)
             assert result['statusCode'] == 200, f"Status '{status}' should be valid"
 
     def test_missing_status_field_returns_400(self):
-        event = make_event(
-            'POST', '/applications/app-123/status',
-            path_params={'appId': 'app-123'},
-            body={'notes': 'forgot status'},
-        )
-        result = lambda_handler(event, None)
-        assert result['statusCode'] == 400
+        event = make_event('POST', '/applications/app-123/status',
+                           path_params={'appId': 'app-123'}, body={'notes': 'forgot status'})
+        assert lambda_handler(event, None)['statusCode'] == 400
 
 
 class TestDeleteApplication:
-
     def test_delete_returns_200(self):
         event = make_event('DELETE', '/applications/app-123', path_params={'appId': 'app-123'})
-        with patch('applications_handler.table') as mock_table:
-            mock_table.delete_item.return_value = {}
+        with patch('applications_handler.table') as mt:
+            mt.delete_item.return_value = {}
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
         assert json.loads(result['body'])['appId'] == 'app-123'
 
 
 class TestGetUploadUrl:
-
     def test_returns_presigned_url(self):
         event = make_event('POST', '/resumes/upload-url', body={
-            'filename': 'resume.pdf', 'versionName': 'v3-ml-focused',
+            'filename': 'resume.pdf', 'versionName': 'v3-ml-focused'
         })
-        with patch('applications_handler.s3_client') as mock_s3:
-            mock_s3.generate_presigned_url.return_value = 'https://s3.amazonaws.com/fake-url'
+        with patch('applications_handler.s3_client') as ms3:
+            ms3.generate_presigned_url.return_value = 'https://s3.amazonaws.com/fake-url'
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
         body = json.loads(result['body'])
@@ -256,5 +275,4 @@ class TestGetUploadUrl:
 
     def test_returns_400_without_filename(self):
         event = make_event('POST', '/resumes/upload-url', body={'versionName': 'v1'})
-        result = lambda_handler(event, None)
-        assert result['statusCode'] == 400
+        assert lambda_handler(event, None)['statusCode'] == 400

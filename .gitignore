@@ -24,3 +24,8 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Shared layer dependencies
+lambdas/shared_layer/python/*
+!lambdas/shared_layer/python/shared/
+!lambdas/shared_layer/python/shared/**
