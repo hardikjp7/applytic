@@ -12,8 +12,10 @@ class _FakeLogger:
     def error(self, *a, **kw): pass
     def exception(self, *a, **kw): pass
     def set_correlation_id(self, *a, **kw): pass
-    def inject_lambda_context(self, *a, **kw):
-        def decorator(fn): return fn
+    def inject_lambda_context(self, fn=None, **kw):
+        def decorator(f): return f
+        if fn is not None:
+            return fn
         return decorator
 
 class _FakeTracer:
