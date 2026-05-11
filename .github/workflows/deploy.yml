@@ -22,9 +22,9 @@ env:
 
 jobs:
 
-  # ── Job 1: Run tests ─────────────────────────────────────────────────────────
+  # ── Job 1: Backend tests + coverage ──────────────────────────────────────────
   test:
-    name: Run pytest
+    name: Run pytest + coverage
     runs-on: ubuntu-latest
 
     steps:
@@ -39,16 +39,40 @@ jobs:
           cache-dependency-path: lambdas/requirements.txt
 
       - name: Install test dependencies
-        run: pip install pytest boto3 pydantic aws-lambda-powertools
+        run: |
+          pip install pytest boto3 pydantic aws-lambda-powertools pytest-cov
+          pip install "moto[dynamodb,s3,ses,cognitoidp]" 
 
-      - name: Run tests
-        run: python -m pytest tests/ -v --tb=short
+      - name: Run tests with coverage
+        run: python -m pytest tests/ -v --tb=short --cov=lambdas --cov-report=term-missing --cov-fail-under=70
 
-  # ── Job 2: Deploy backend (CDK) ───────────────────────────────────────────────
+  # ── Job 2: Frontend tests ─────────────────────────────────────────────────────
+  test-frontend:
+    name: Run Vitest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Run frontend tests
+        run: cd frontend && npm run test
+
+  # ── Job 3: Deploy backend (CDK) ───────────────────────────────────────────────
   deploy-backend:
     name: Deploy CDK stack
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, test-frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     permissions:
@@ -91,11 +115,11 @@ jobs:
       - name: Deploy CDK stack
         run: cd cdk && cdk deploy --require-approval never
 
-  # ── Job 3: Deploy frontend to S3 + CloudFront ─────────────────────────────────
+  # ── Job 4: Deploy frontend to S3 + CloudFront ─────────────────────────────────
   deploy-frontend-aws:
     name: Deploy frontend to AWS
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, test-frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     permissions:
@@ -122,7 +146,7 @@ jobs:
       - name: Install dependencies
         run: cd frontend && npm ci
 
-      - name: Build frontend (CloudFront — base path /)
+      - name: Build frontend (CloudFront - base path /)
         run: cd frontend && npm run build
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
@@ -140,11 +164,11 @@ jobs:
             --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} \
             --paths "/*"
 
-  # ── Job 4: Deploy frontend to GitHub Pages ────────────────────────────────────
+  # ── Job 5: Deploy frontend to GitHub Pages ────────────────────────────────────
   deploy-frontend-pages:
     name: Deploy frontend to GitHub Pages
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, test-frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: github-pages
@@ -169,7 +193,7 @@ jobs:
       - name: Install dependencies
         run: cd frontend && npm ci
 
-      - name: Build frontend (GitHub Pages — base path /applytic/)
+      - name: Build frontend (GitHub Pages - base path /applytic/)
         run: cd frontend && npm run build
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
