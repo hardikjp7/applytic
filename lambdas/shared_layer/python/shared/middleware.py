@@ -20,6 +20,7 @@ logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 ALLOWED_ORIGINS = [
     "https://d3jumje9o63lys.cloudfront.net",
     "https://hardikjp7.github.io",
+    "https://hardikjp7.com",
 ]
 
 def _get_cors_origin(event: dict) -> str:

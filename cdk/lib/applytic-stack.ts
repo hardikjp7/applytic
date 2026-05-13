@@ -70,6 +70,10 @@ export class ApplyticStack extends cdk.Stack {
 
     const cloudfrontDomain = `https://${distribution.distributionDomainName}`;
 
+    // ─── custom domain origins (added for hardikjp7.com) ─────────────────────
+    const customDomain = 'https://hardikjp7.com';
+    const customDomainApplytic = 'https://hardikjp7.com/applytic';
+
     // ─── Cognito ──────────────────────────────────────────────────────────────
     const userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: 'applytic-users',
@@ -86,7 +90,12 @@ export class ApplyticStack extends cdk.Stack {
       oAuth: {
         flows: { implicitCodeGrant: true },
         scopes: [cognito.OAuthScope.EMAIL, cognito.OAuthScope.OPENID],
-        callbackUrls: [cloudfrontDomain],
+        callbackUrls: [
+          cloudfrontDomain,
+          'https://hardikjp7.github.io/applytic',
+          customDomain,
+          customDomainApplytic,
+        ],
       },
     });
 
@@ -228,9 +237,6 @@ export class ApplyticStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     };
 
-    // Construct IDs must match v1.1 exactly to avoid CloudFormation trying to
-    // create duplicate alarms. The logical ID (first arg) is what CDK uses to
-    // track the resource in CloudFormation state.
     new cloudwatch.Alarm(this, 'ApplicationsLambdaErrorAlarm', {
       alarmName: 'applytic-applications-errors',
       alarmDescription: 'Applications Lambda error rate > 5 in 5 minutes',
@@ -325,7 +331,12 @@ export class ApplyticStack extends cdk.Stack {
       restApiName: 'applytic-api',
       description: 'Job tracker REST API',
       defaultCorsPreflightOptions: {
-        allowOrigins: [cloudfrontDomain, 'https://hardikjp7.github.io'],
+        allowOrigins: [
+          cloudfrontDomain,
+          'https://hardikjp7.github.io',
+          customDomain,
+          customDomainApplytic,
+        ],
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],
         maxAge: cdk.Duration.hours(1),
@@ -335,7 +346,7 @@ export class ApplyticStack extends cdk.Stack {
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
         dataTraceEnabled: true,
         metricsEnabled: true,
-        tracingEnabled: true, // v1.2: X-Ray on API Gateway
+        tracingEnabled: true,
       },
     });
 
