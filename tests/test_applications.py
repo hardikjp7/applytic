@@ -1,5 +1,6 @@
 """
-Tests for the Applications Lambda — v1.2
+Tests for the Applications Lambda - v2.0
+v2.0 additions: followUpDate field tests in create and update.
 Stubs shared layer, powertools, pydantic, xray before loading handler.
 Run: python -m pytest tests/test_applications.py -v
 """
@@ -83,7 +84,6 @@ def _mock_parse_body(event):
         return {}, shared_mw.resp(400, {"error": "Invalid JSON body"}, event)
 
 shared_mw.parse_body = _mock_parse_body
-
 shared_mw.now_iso = lambda: "2024-01-01T00:00:00+00:00"
 shared_mw.with_middleware = lambda fn: fn
 sys.modules["shared"] = shared_pkg
@@ -210,6 +210,64 @@ class TestCreateApplication:
             result = lambda_handler(event, None)
         app_id = json.loads(result['body'])['application']['appId']
         assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', app_id)
+
+    # v2.0: followUpDate tests
+    def test_creates_with_follow_up_date(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'followUpDate': '2024-02-01'
+        })
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 201
+        app = json.loads(result['body'])['application']
+        assert app['followUpDate'] == '2024-02-01'
+
+    def test_creates_without_follow_up_date_defaults_to_none(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied'
+        })
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        app = json.loads(result['body'])['application']
+        assert app['followUpDate'] is None
+
+    def test_invalid_follow_up_date_format_returns_400(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'followUpDate': 'not-a-date'
+        })
+        result = lambda_handler(event, None)
+        assert result['statusCode'] == 400
+
+
+class TestUpdateApplication:
+    def test_update_follow_up_date(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'},
+                           body={'followUpDate': '2024-03-01'})
+        with patch('applications_handler.table') as mt:
+            mt.update_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 200
+
+    def test_clear_follow_up_date_with_null(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'},
+                           body={'followUpDate': None})
+        with patch('applications_handler.table') as mt:
+            mt.update_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 200
+
+    def test_invalid_follow_up_date_format_on_update_returns_400(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'},
+                           body={'followUpDate': 'bad-date'})
+        result = lambda_handler(event, None)
+        assert result['statusCode'] == 400
 
 
 class TestUpdateStatus:
