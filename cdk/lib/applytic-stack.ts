@@ -69,8 +69,6 @@ export class ApplyticStack extends cdk.Stack {
     });
 
     const cloudfrontDomain = `https://${distribution.distributionDomainName}`;
-
-    // ─── custom domain origins ────────────────────────────────────────────────
     const customDomain = 'https://hardikjp7.com';
     const customDomainApplytic = 'https://hardikjp7.com/applytic';
 
@@ -100,7 +98,6 @@ export class ApplyticStack extends cdk.Stack {
     });
 
     // ─── v1.2: Shared Lambda Layer ────────────────────────────────────────────
-    // Run: bash scripts/build_layer.sh before cdk deploy
     const sharedLayer = new lambda.LayerVersion(this, 'SharedLayer', {
       layerVersionName: 'applytic-shared',
       description: 'Shared middleware, Pydantic, X-Ray SDK, Powertools',
@@ -215,7 +212,6 @@ export class ApplyticStack extends cdk.Stack {
       environment: { ...commonEnv, SES_FROM_EMAIL: 'hardikjparmar7@gmail.com' },
     });
 
-    // Follow-up Lambda needs: read DynamoDB, send SES, read Cognito
     table.grantReadData(followUpLambda);
     followUpLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -228,15 +224,30 @@ export class ApplyticStack extends cdk.Stack {
       resources: [userPool.userPoolArn],
     }));
 
-    // ─── v1.2: X-Ray IAM for all Lambdas ─────────────────────────────────────
+    // ─── v2.0: Lambda: user settings (weeklyGoal + streak) ───────────────────
+    const settingsLambda = new lambda.Function(this, 'SettingsLambda', {
+      functionName: 'applytic-settings',
+      runtime, architecture, memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      logRetention, tracing: tracingConfig, layers: [sharedLayer],
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/settings')),
+      handler: 'handler.lambda_handler',
+      description: 'v2.0 - User settings: weekly goal and streak tracking',
+      environment: commonEnv,
+    });
+
+    // Settings Lambda needs read+write for USER_SETTINGS entity
+    // and read for APPLICATION entities (streak computation)
+    table.grantReadWriteData(settingsLambda);
+
+    // ─── v1.2 + v2.0: X-Ray IAM for all Lambdas ──────────────────────────────
     const xrayPolicy = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['xray:PutTraceSegments', 'xray:PutTelemetryRecords', 'xray:GetSamplingRules', 'xray:GetSamplingTargets'],
       resources: ['*'],
     });
 
-    // v2.0: followUpLambda added to xray policy
-    [applicationsLambda, insightsLambda, digestLambda, cognitoVerifyLambda, followUpLambda].forEach(fn => {
+    [applicationsLambda, insightsLambda, digestLambda, cognitoVerifyLambda, followUpLambda, settingsLambda].forEach(fn => {
       fn.addToRolePolicy(xrayPolicy);
     });
 
@@ -272,53 +283,40 @@ export class ApplyticStack extends cdk.Stack {
 
     new cloudwatch.Alarm(this, 'ApplicationsLambdaErrorAlarm', {
       alarmName: 'applytic-applications-errors',
-      alarmDescription: 'Applications Lambda error rate > 5 in 5 minutes',
       metric: applicationsLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 5,
-      ...alarmDefaults,
+      threshold: 5, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'InsightsLambdaErrorAlarm', {
       alarmName: 'applytic-insights-errors',
-      alarmDescription: 'Insights Lambda error rate > 5 in 5 minutes',
       metric: insightsLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 5,
-      ...alarmDefaults,
+      threshold: 5, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'DigestLambdaErrorAlarm', {
       alarmName: 'applytic-digest-errors',
-      alarmDescription: 'Digest Lambda failed - weekly email may not have sent',
       metric: digestLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 1,
-      ...alarmDefaults,
+      threshold: 1, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
-    // v2.0: alarm for follow-up Lambda
     new cloudwatch.Alarm(this, 'FollowUpLambdaErrorAlarm', {
       alarmName: 'applytic-followup-errors',
-      alarmDescription: 'v2.0 - Follow-up Lambda failed - daily reminders may not have sent',
       metric: followUpLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 1,
-      ...alarmDefaults,
+      threshold: 1, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'ApplicationsLambdaP99Alarm', {
       alarmName: 'applytic-applications-p99-latency',
-      alarmDescription: 'Applications Lambda p99 latency > 10s',
       metric: applicationsLambda.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
-      threshold: 10000,
-      evaluationPeriods: 2,
+      threshold: 10000, evaluationPeriods: 2,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'InsightsLambdaP99Alarm', {
       alarmName: 'applytic-insights-p99-latency',
-      alarmDescription: 'Insights Lambda p99 latency > 30s (Bedrock timeout risk)',
       metric: insightsLambda.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
-      threshold: 30000,
-      evaluationPeriods: 2,
+      threshold: 30000, evaluationPeriods: 2,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
@@ -335,6 +333,7 @@ export class ApplyticStack extends cdk.Stack {
               insightsLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               digestLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               followUpLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
+              settingsLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -345,6 +344,7 @@ export class ApplyticStack extends cdk.Stack {
               insightsLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               digestLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               followUpLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
+              settingsLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -405,6 +405,7 @@ export class ApplyticStack extends cdk.Stack {
       authorizationType: apigateway.AuthorizationType.COGNITO,
     };
 
+    // existing routes
     const appsResource = api.root.addResource('applications');
     appsResource.addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appsResource.addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
@@ -413,7 +414,6 @@ export class ApplyticStack extends cdk.Stack {
     appResource.addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appResource.addMethod('PUT', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appResource.addMethod('DELETE', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
-
     appResource.addResource('status').addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
 
     const insightsResource = api.root.addResource('insights');
@@ -424,6 +424,12 @@ export class ApplyticStack extends cdk.Stack {
     resumesResource.addResource('upload-url').addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     resumesResource.addResource('list').addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
 
+    // ─── v2.0: /users/settings routes ────────────────────────────────────────
+    const usersResource = api.root.addResource('users');
+    const settingsResource = usersResource.addResource('settings');
+    settingsResource.addMethod('GET', new apigateway.LambdaIntegration(settingsLambda), authOptions);
+    settingsResource.addMethod('PUT', new apigateway.LambdaIntegration(settingsLambda), authOptions);
+
     // ─── Outputs ──────────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url, description: 'REST API base URL' });
     new cdk.CfnOutput(this, 'FrontendUrl', { value: cloudfrontDomain });
@@ -431,6 +437,6 @@ export class ApplyticStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, 'ResumeBucketName', { value: resumeBucket.bucketName });
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: alarmTopic.topicArn });
-    new cdk.CfnOutput(this, 'SharedLayerArn', { value: sharedLayer.layerVersionArn, description: 'Shared Lambda Layer ARN' });
+    new cdk.CfnOutput(this, 'SharedLayerArn', { value: sharedLayer.layerVersionArn });
   }
 }

@@ -18,6 +18,7 @@ export interface Application {
   companySize: 'startup' | 'mid' | 'enterprise' | ''
   jobDescUrl: string
   notes: string
+  followUpDate: string | null  // v2.0: YYYY-MM-DD, null if not set
   createdAt: string
   updatedAt: string
 }
@@ -53,4 +54,11 @@ export interface Patterns {
     bestCompanySize: { name: string; responseRate: number } | null
   }
   velocity: Record<string, number>
+}
+
+// v2.0: user settings - weekly goal and streak
+export interface UserSettings {
+  weeklyGoal: number
+  streakCount: number
+  streakLastUpdated: string | null
 }
