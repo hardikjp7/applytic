@@ -62,3 +62,11 @@ export interface UserSettings {
   streakCount: number
   streakLastUpdated: string | null
 }
+
+// v2.0: timestamped note on an application
+export interface Note {
+  noteId: string
+  appId: string
+  content: string
+  createdAt: string
+}

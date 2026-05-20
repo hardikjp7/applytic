@@ -224,7 +224,7 @@ export class ApplyticStack extends cdk.Stack {
       resources: [userPool.userPoolArn],
     }));
 
-    // ─── v2.0: Lambda: user settings (weeklyGoal + streak) ───────────────────
+    // ─── v2.0: Lambda: user settings ─────────────────────────────────────────
     const settingsLambda = new lambda.Function(this, 'SettingsLambda', {
       functionName: 'applytic-settings',
       runtime, architecture, memorySize: 512,
@@ -236,9 +236,23 @@ export class ApplyticStack extends cdk.Stack {
       environment: commonEnv,
     });
 
-    // Settings Lambda needs read+write for USER_SETTINGS entity
-    // and read for APPLICATION entities (streak computation)
     table.grantReadWriteData(settingsLambda);
+
+    // ─── v2.0: Lambda: notes timeline ────────────────────────────────────────
+    const notesLambda = new lambda.Function(this, 'NotesLambda', {
+      functionName: 'applytic-notes',
+      runtime, architecture, memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      logRetention, tracing: tracingConfig, layers: [sharedLayer],
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/notes')),
+      handler: 'handler.lambda_handler',
+      description: 'v2.0 - Timestamped notes timeline per application',
+      environment: commonEnv,
+    });
+
+    // Notes Lambda needs read+write: reads APPLICATION to verify ownership,
+    // writes/deletes NOTE entities
+    table.grantReadWriteData(notesLambda);
 
     // ─── v1.2 + v2.0: X-Ray IAM for all Lambdas ──────────────────────────────
     const xrayPolicy = new iam.PolicyStatement({
@@ -247,9 +261,10 @@ export class ApplyticStack extends cdk.Stack {
       resources: ['*'],
     });
 
-    [applicationsLambda, insightsLambda, digestLambda, cognitoVerifyLambda, followUpLambda, settingsLambda].forEach(fn => {
-      fn.addToRolePolicy(xrayPolicy);
-    });
+    [
+      applicationsLambda, insightsLambda, digestLambda,
+      cognitoVerifyLambda, followUpLambda, settingsLambda, notesLambda,
+    ].forEach(fn => fn.addToRolePolicy(xrayPolicy));
 
     // ─── EventBridge: Monday 8am UTC - weekly digest ──────────────────────────
     new events.Rule(this, 'WeeklyDigestRule', {
@@ -321,7 +336,7 @@ export class ApplyticStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
-    // ─── v1.2: CloudWatch Dashboard ───────────────────────────────────────────
+    // ─── CloudWatch Dashboard ─────────────────────────────────────────────────
     new cloudwatch.Dashboard(this, 'ApplyticDashboard', {
       dashboardName: 'applytic-overview',
       widgets: [
@@ -334,6 +349,7 @@ export class ApplyticStack extends cdk.Stack {
               digestLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               followUpLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               settingsLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
+              notesLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -345,6 +361,7 @@ export class ApplyticStack extends cdk.Stack {
               digestLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               followUpLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               settingsLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
+              notesLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -405,7 +422,7 @@ export class ApplyticStack extends cdk.Stack {
       authorizationType: apigateway.AuthorizationType.COGNITO,
     };
 
-    // existing routes
+    // ─── existing routes ──────────────────────────────────────────────────────
     const appsResource = api.root.addResource('applications');
     appsResource.addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appsResource.addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
@@ -424,11 +441,19 @@ export class ApplyticStack extends cdk.Stack {
     resumesResource.addResource('upload-url').addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     resumesResource.addResource('list').addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
 
-    // ─── v2.0: /users/settings routes ────────────────────────────────────────
+    // ─── v2.0: /users/settings ────────────────────────────────────────────────
     const usersResource = api.root.addResource('users');
     const settingsResource = usersResource.addResource('settings');
     settingsResource.addMethod('GET', new apigateway.LambdaIntegration(settingsLambda), authOptions);
     settingsResource.addMethod('PUT', new apigateway.LambdaIntegration(settingsLambda), authOptions);
+
+    // ─── v2.0: /applications/{appId}/notes routes ─────────────────────────────
+    const notesResource = appResource.addResource('notes');
+    notesResource.addMethod('GET', new apigateway.LambdaIntegration(notesLambda), authOptions);
+    notesResource.addMethod('POST', new apigateway.LambdaIntegration(notesLambda), authOptions);
+
+    const noteResource = notesResource.addResource('{noteId}');
+    noteResource.addMethod('DELETE', new apigateway.LambdaIntegration(notesLambda), authOptions);
 
     // ─── Outputs ──────────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url, description: 'REST API base URL' });
