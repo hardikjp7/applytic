@@ -5,8 +5,12 @@ import { useApplications } from '../../hooks/useApplications'
 import AddApplicationModal from './AddApplicationModal'
 import ApplicationDetailModal from './ApplicationDetailModal'
 import ConfirmDialog from '../layout/ConfirmDialog'
+import CsvExportButton from './CsvExportButton'
+import CsvImportModal from './CsvImportModal'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_COLUMNS } from '../../lib/utils'
 import type { AppStatus, Application } from '../../types'
+import type { ImportRow } from '../../lib/csv'
+import toast from 'react-hot-toast'
 
 const STATUS_BORDER: Record<AppStatus, string> = {
   applied:   'border-l-blue-400',
@@ -46,6 +50,7 @@ function EmptyColumn({ status, filtered }: { status: AppStatus; filtered: boolea
 export default function KanbanBoard() {
   const { applications, loading, create, update, remove, changeStatus } = useApplications()
   const [showModal, setShowModal] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Application | null>(null)
   const [search, setSearch] = useState('')
@@ -72,6 +77,34 @@ export default function KanbanBoard() {
   const isFiltering = search.trim() !== '' || filterSource !== ''
   const byStatus = (status: AppStatus) => filtered.filter(a => a.status === status)
   const clearFilters = () => { setSearch(''); setFilterSource('') }
+
+  // v2.0: handle CSV import - batch create
+  const handleImport = async (rows: ImportRow[]): Promise<{ imported: number; failed: number }> => {
+    let imported = 0
+    let failed = 0
+    for (const row of rows) {
+      try {
+        await create({
+          company: row.company,
+          role: row.role,
+          status: row.status as AppStatus,
+          dateApplied: row.dateApplied,
+          source: row.source as Application['source'],
+          resumeVersion: row.resumeVersion,
+          companySize: row.companySize as Application['companySize'],
+          jobDescUrl: row.jobDescUrl,
+          notes: row.notes,
+          followUpDate: row.followUpDate,
+        })
+        imported++
+      } catch {
+        failed++
+      }
+    }
+    if (imported > 0) toast.success(`Imported ${imported} application${imported !== 1 ? 's' : ''}`)
+    if (failed > 0) toast.error(`${failed} application${failed !== 1 ? 's' : ''} failed to import`)
+    return { imported, failed }
+  }
 
   if (loading) return (
     <div className="p-4 lg:p-6">
@@ -102,21 +135,36 @@ export default function KanbanBoard() {
           <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Board</h1>
           <p className="text-sm text-gray-400 mt-0.5">0 applications</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 transition-colors">
-          <Plus size={15} /> Add application
-        </button>
+        <div className="flex items-center gap-2">
+          {/* v2.0: import button visible even when empty */}
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 rounded-lg transition-colors"
+          >
+            <span className="hidden sm:inline">Import</span>
+          </button>
+          <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 transition-colors">
+            <Plus size={15} /> Add application
+          </button>
+        </div>
       </div>
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <div className="w-12 h-12 rounded-full bg-brand-50 dark:bg-brand-800/20 flex items-center justify-center mb-4">
           <Plus size={20} className="text-brand-600 dark:text-brand-400" />
         </div>
         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">No applications yet</p>
-        <p className="text-sm text-gray-400 mb-5">Start tracking your job search — add your first application.</p>
-        <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 transition-colors">
-          Add first application
-        </button>
+        <p className="text-sm text-gray-400 mb-5">Add your first application or import from a CSV file.</p>
+        <div className="flex gap-2">
+          <button onClick={() => setShowImport(true)} className="px-4 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            Import CSV
+          </button>
+          <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 transition-colors">
+            Add first application
+          </button>
+        </div>
       </div>
       {showModal && <AddApplicationModal onClose={() => setShowModal(false)} onSave={(data) => create(data as Omit<Application, 'appId' | 'userId' | 'createdAt' | 'updatedAt'>)} />}
+      {showImport && <CsvImportModal onClose={() => setShowImport(false)} onImport={handleImport} />}
     </div>
   )
 
@@ -130,11 +178,21 @@ export default function KanbanBoard() {
             {isFiltering ? `${filtered.length} of ${applications.length} applications` : `${applications.length} applications`}
           </p>
         </div>
-        <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 transition-colors">
-          <Plus size={15} />
-          <span className="hidden sm:inline">Add application</span>
-          <span className="sm:hidden">Add</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* v2.0: export + import buttons */}
+          <CsvExportButton applications={applications} />
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg transition-colors"
+          >
+            <span className="hidden sm:inline">Import</span>
+          </button>
+          <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 transition-colors">
+            <Plus size={15} />
+            <span className="hidden sm:inline">Add application</span>
+            <span className="sm:hidden">Add</span>
+          </button>
+        </div>
       </div>
 
       {/* Search + filter */}
@@ -241,6 +299,12 @@ export default function KanbanBoard() {
                               {app.resumeVersion && (
                                 <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">{app.resumeVersion}</span>
                               )}
+                              {/* v2.0: follow-up badge */}
+                              {app.followUpDate && new Date(app.followUpDate) <= new Date() && ['applied', 'screened'].includes(app.status) && (
+                                <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded ml-auto">
+                                  Follow up
+                                </span>
+                              )}
                             </div>
                             <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">{app.dateApplied}</p>
                           </div>
@@ -257,6 +321,7 @@ export default function KanbanBoard() {
       </DragDropContext>
 
       {showModal && <AddApplicationModal onClose={() => setShowModal(false)} onSave={(data) => create(data as Omit<Application, 'appId' | 'userId' | 'createdAt' | 'updatedAt'>)} />}
+      {showImport && <CsvImportModal onClose={() => setShowImport(false)} onImport={handleImport} />}
       {selectedApp && (
         <ApplicationDetailModal
           app={applications.find(a => a.appId === selectedApp.appId) ?? selectedApp}
@@ -269,7 +334,7 @@ export default function KanbanBoard() {
       {confirmDelete && (
         <ConfirmDialog
           title="Delete application"
-          message={`Remove ${confirmDelete.company} — ${confirmDelete.role}? This cannot be undone.`}
+          message={`Remove ${confirmDelete.company} - ${confirmDelete.role}? This cannot be undone.`}
           confirmLabel="Delete"
           danger
           onConfirm={() => { remove(confirmDelete.appId); setConfirmDelete(null) }}
