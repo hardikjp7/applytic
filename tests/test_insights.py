@@ -58,7 +58,17 @@ def _resp(status, body, event=None):
 shared_mw.resp = _resp
 shared_mw.get_user_id = lambda event: event["requestContext"]["authorizer"]["claims"]["sub"]
 shared_mw.get_user_email = lambda event: event["requestContext"]["authorizer"]["claims"].get("email", "")
-shared_mw.parse_body = lambda event: (json.loads(event["body"]) if event.get("body") else {}, None)
+
+def _mock_parse_body(event):
+    raw = event.get("body")
+    if not raw:
+        return {}, None
+    try:
+        return json.loads(raw), None
+    except (json.JSONDecodeError, TypeError):
+        return {}, _resp(400, {"error": "Invalid JSON body"}, event)
+shared_mw.parse_body = _mock_parse_body
+
 shared_mw.now_iso = lambda: "2024-01-01T00:00:00+00:00"
 shared_mw.with_middleware = lambda fn: fn
 sys.modules["shared"] = shared_pkg
