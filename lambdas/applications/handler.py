@@ -1,7 +1,9 @@
 """
-Applications Lambda — v1.2
+Applications Lambda - v2.0
 Handles: GET/POST /applications, GET/PUT/DELETE /applications/{appId},
          POST /applications/{appId}/status, POST /resumes/upload-url, GET /resumes/list
+
+v2.0 change: followUpDate field added to CreateApplicationRequest and UpdateApplicationRequest.
 """
 import os
 import uuid
@@ -37,6 +39,7 @@ class CreateApplicationRequest(BaseModel):
     jobDescUrl: Optional[str] = ""
     companySize: Optional[Literal["startup", "mid", "enterprise", ""]] = ""
     notes: Optional[str] = ""
+    followUpDate: Optional[str] = None  # v2.0: YYYY-MM-DD, nullable
 
     @field_validator("company", "role")
     @classmethod
@@ -44,6 +47,18 @@ class CreateApplicationRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("must not be empty")
         return v.strip()
+
+    @field_validator("followUpDate")
+    @classmethod
+    def valid_date_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        try:
+            from datetime import datetime
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("followUpDate must be YYYY-MM-DD format")
+        return v
 
 
 class UpdateApplicationRequest(BaseModel):
@@ -55,6 +70,19 @@ class UpdateApplicationRequest(BaseModel):
     companySize: Optional[str] = None
     notes: Optional[str] = None
     dateApplied: Optional[str] = None
+    followUpDate: Optional[str] = None  # v2.0: can update or clear (pass null to clear)
+
+    @field_validator("followUpDate")
+    @classmethod
+    def valid_date_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        try:
+            from datetime import datetime
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("followUpDate must be YYYY-MM-DD format")
+        return v
 
 
 class UpdateStatusRequest(BaseModel):
@@ -103,7 +131,9 @@ def create_application(user_id: str, body: dict, event: dict) -> dict:
         "dateApplied": req.dateApplied or ts[:10],
         "resumeVersion": req.resumeVersion, "source": req.source,
         "jobDescUrl": req.jobDescUrl, "companySize": req.companySize,
-        "notes": req.notes, "createdAt": ts, "updatedAt": ts,
+        "notes": req.notes,
+        "followUpDate": req.followUpDate,  # v2.0
+        "createdAt": ts, "updatedAt": ts,
         "entityType": "APPLICATION",
     }
 
@@ -129,8 +159,16 @@ def update_application(user_id: str, app_id: str, body: dict, event: dict) -> di
     except Exception as e:
         return resp(400, {"error": f"Validation error: {e}"}, event)
 
-    allowed = ["company", "role", "jobDescUrl", "resumeVersion", "source", "companySize", "notes", "dateApplied"]
+    allowed = [
+        "company", "role", "jobDescUrl", "resumeVersion", "source",
+        "companySize", "notes", "dateApplied", "followUpDate",  # v2.0
+    ]
     updates = {k: v for k, v in req.model_dump(exclude_none=True).items() if k in allowed}
+
+    # v2.0: support explicitly clearing followUpDate by passing null in body
+    # model_dump(exclude_none=True) skips None, so we check raw body separately
+    if "followUpDate" in body and body["followUpDate"] is None:
+        updates["followUpDate"] = None
 
     if not updates:
         return resp(400, {"error": "No valid fields to update"}, event)

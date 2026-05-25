@@ -1,5 +1,5 @@
 import { api } from './amplify'
-import type { Application, AppStatus, Patterns } from '../types'
+import type { Application, AppStatus, Patterns, UserSettings, Note } from '../types'
 
 // ── Applications ──────────────────────────────────────────────────────────────
 
@@ -76,4 +76,40 @@ export const chatWithCoach = async (
 ): Promise<{ reply: string; dataInsufficient?: boolean }> => {
   const res = await api.post('/insights/chat', { message })
   return res.data
+}
+
+// ── v2.0: User settings ───────────────────────────────────────────────────────
+
+export const getSettings = async (): Promise<UserSettings> => {
+  const res = await api.get('/users/settings')
+  return res.data.settings
+}
+
+export const updateSettings = async (
+  data: Pick<UserSettings, 'weeklyGoal'>
+): Promise<UserSettings> => {
+  const res = await api.put('/users/settings', data)
+  return res.data.settings
+}
+
+// ── v2.0: Notes ───────────────────────────────────────────────────────────────
+
+export const getNotes = async (appId: string): Promise<Note[]> => {
+  const res = await api.get(`/applications/${appId}/notes`)
+  return res.data.notes
+}
+
+export const createNote = async (
+  appId: string,
+  content: string
+): Promise<Note> => {
+  const res = await api.post(`/applications/${appId}/notes`, { content })
+  return res.data.note
+}
+
+export const deleteNote = async (
+  appId: string,
+  noteId: string
+): Promise<void> => {
+  await api.delete(`/applications/${appId}/notes/${noteId}`)
 }

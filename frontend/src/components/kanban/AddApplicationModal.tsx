@@ -12,6 +12,7 @@ const defaultForm = {
   dateApplied: new Date().toISOString().split('T')[0],
   source: 'linkedin' as const, resumeVersion: 'v1',
   companySize: '' as const, jobDescUrl: '', notes: '',
+  followUpDate: null as string | null,
 }
 
 const inp = 'w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500'

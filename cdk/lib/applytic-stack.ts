@@ -39,7 +39,7 @@ export class ApplyticStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // ─── S3 — resumes ─────────────────────────────────────────────────────────
+    // ─── S3 - resumes ─────────────────────────────────────────────────────────
     const resumeBucket = new s3.Bucket(this, 'ResumeBucket', {
       bucketName: `applytic-resumes-${this.account}`,
       versioned: true,
@@ -50,7 +50,7 @@ export class ApplyticStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    // ─── S3 — frontend ────────────────────────────────────────────────────────
+    // ─── S3 - frontend ────────────────────────────────────────────────────────
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       bucketName: `applytic-frontend-${this.account}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -69,8 +69,6 @@ export class ApplyticStack extends cdk.Stack {
     });
 
     const cloudfrontDomain = `https://${distribution.distributionDomainName}`;
-
-    // ─── custom domain origins (added for hardikjp7.com) ─────────────────────
     const customDomain = 'https://hardikjp7.com';
     const customDomainApplytic = 'https://hardikjp7.com/applytic';
 
@@ -100,7 +98,6 @@ export class ApplyticStack extends cdk.Stack {
     });
 
     // ─── v1.2: Shared Lambda Layer ────────────────────────────────────────────
-    // Run: bash scripts/build_layer.sh before cdk deploy
     const sharedLayer = new lambda.LayerVersion(this, 'SharedLayer', {
       layerVersionName: 'applytic-shared',
       description: 'Shared middleware, Pydantic, X-Ray SDK, Powertools',
@@ -183,7 +180,7 @@ export class ApplyticStack extends cdk.Stack {
       resources: [userPool.userPoolArn],
     }));
 
-    // ─── v1.2: Lambda: Cognito Post Confirmation → SES verify ─────────────────
+    // ─── v1.2: Lambda: Cognito Post Confirmation - SES verify ─────────────────
     const cognitoVerifyLambda = new lambda.Function(this, 'CognitoVerifyLambda', {
       functionName: 'applytic-cognito-verify',
       runtime, architecture, memorySize: 256,
@@ -201,26 +198,88 @@ export class ApplyticStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    // Attach as Cognito Post Confirmation trigger
     userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, cognitoVerifyLambda);
 
-    // ─── v1.2: X-Ray IAM for all Lambdas ─────────────────────────────────────
+    // ─── v2.0: Lambda: follow-up reminders ───────────────────────────────────
+    const followUpLambda = new lambda.Function(this, 'FollowUpLambda', {
+      functionName: 'applytic-followup',
+      runtime, architecture, memorySize: 512,
+      timeout: cdk.Duration.seconds(120),
+      logRetention, tracing: tracingConfig, layers: [sharedLayer],
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/followup')),
+      handler: 'handler.lambda_handler',
+      description: 'v2.0 - Daily follow-up reminder emails for overdue applications',
+      environment: { ...commonEnv, SES_FROM_EMAIL: 'hardikjparmar7@gmail.com' },
+    });
+
+    table.grantReadData(followUpLambda);
+    followUpLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: ['*'],
+    }));
+    followUpLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cognito-idp:AdminGetUser'],
+      resources: [userPool.userPoolArn],
+    }));
+
+    // ─── v2.0: Lambda: user settings ─────────────────────────────────────────
+    const settingsLambda = new lambda.Function(this, 'SettingsLambda', {
+      functionName: 'applytic-settings',
+      runtime, architecture, memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      logRetention, tracing: tracingConfig, layers: [sharedLayer],
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/settings')),
+      handler: 'handler.lambda_handler',
+      description: 'v2.0 - User settings: weekly goal and streak tracking',
+      environment: commonEnv,
+    });
+
+    table.grantReadWriteData(settingsLambda);
+
+    // ─── v2.0: Lambda: notes timeline ────────────────────────────────────────
+    const notesLambda = new lambda.Function(this, 'NotesLambda', {
+      functionName: 'applytic-notes',
+      runtime, architecture, memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      logRetention, tracing: tracingConfig, layers: [sharedLayer],
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/notes')),
+      handler: 'handler.lambda_handler',
+      description: 'v2.0 - Timestamped notes timeline per application',
+      environment: commonEnv,
+    });
+
+    // Notes Lambda needs read+write: reads APPLICATION to verify ownership,
+    // writes/deletes NOTE entities
+    table.grantReadWriteData(notesLambda);
+
+    // ─── v1.2 + v2.0: X-Ray IAM for all Lambdas ──────────────────────────────
     const xrayPolicy = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['xray:PutTraceSegments', 'xray:PutTelemetryRecords', 'xray:GetSamplingRules', 'xray:GetSamplingTargets'],
       resources: ['*'],
     });
 
-    [applicationsLambda, insightsLambda, digestLambda, cognitoVerifyLambda].forEach(fn => {
-      fn.addToRolePolicy(xrayPolicy);
-    });
+    [
+      applicationsLambda, insightsLambda, digestLambda,
+      cognitoVerifyLambda, followUpLambda, settingsLambda, notesLambda,
+    ].forEach(fn => fn.addToRolePolicy(xrayPolicy));
 
-    // ─── EventBridge: Monday 8am digest ──────────────────────────────────────
+    // ─── EventBridge: Monday 8am UTC - weekly digest ──────────────────────────
     new events.Rule(this, 'WeeklyDigestRule', {
       ruleName: 'applytic-weekly-digest',
       description: 'Fires every Monday at 8am UTC',
       schedule: events.Schedule.cron({ minute: '0', hour: '8', weekDay: 'MON' }),
       targets: [new targets.LambdaFunction(digestLambda)],
+    });
+
+    // ─── v2.0: EventBridge: daily 9am UTC - follow-up reminders ──────────────
+    new events.Rule(this, 'DailyFollowUpRule', {
+      ruleName: 'applytic-daily-followup',
+      description: 'v2.0 - Fires every day at 9am UTC to send follow-up reminders',
+      schedule: events.Schedule.cron({ minute: '0', hour: '9' }),
+      targets: [new targets.LambdaFunction(followUpLambda)],
     });
 
     // ─── SNS alarms topic ─────────────────────────────────────────────────────
@@ -239,49 +298,45 @@ export class ApplyticStack extends cdk.Stack {
 
     new cloudwatch.Alarm(this, 'ApplicationsLambdaErrorAlarm', {
       alarmName: 'applytic-applications-errors',
-      alarmDescription: 'Applications Lambda error rate > 5 in 5 minutes',
       metric: applicationsLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 5,
-      ...alarmDefaults,
+      threshold: 5, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'InsightsLambdaErrorAlarm', {
       alarmName: 'applytic-insights-errors',
-      alarmDescription: 'Insights Lambda error rate > 5 in 5 minutes',
       metric: insightsLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 5,
-      ...alarmDefaults,
+      threshold: 5, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'DigestLambdaErrorAlarm', {
       alarmName: 'applytic-digest-errors',
-      alarmDescription: 'Digest Lambda failed — weekly email may not have sent',
       metric: digestLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
-      threshold: 1,
-      ...alarmDefaults,
+      threshold: 1, ...alarmDefaults,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    new cloudwatch.Alarm(this, 'FollowUpLambdaErrorAlarm', {
+      alarmName: 'applytic-followup-errors',
+      metric: followUpLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 1, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'ApplicationsLambdaP99Alarm', {
       alarmName: 'applytic-applications-p99-latency',
-      alarmDescription: 'Applications Lambda p99 latency > 10s',
       metric: applicationsLambda.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
-      threshold: 10000,
-      evaluationPeriods: 2,
+      threshold: 10000, evaluationPeriods: 2,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     new cloudwatch.Alarm(this, 'InsightsLambdaP99Alarm', {
       alarmName: 'applytic-insights-p99-latency',
-      alarmDescription: 'Insights Lambda p99 latency > 30s (Bedrock timeout risk)',
       metric: insightsLambda.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
-      threshold: 30000,
-      evaluationPeriods: 2,
+      threshold: 30000, evaluationPeriods: 2,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
-    // ─── v1.2: CloudWatch Dashboard ───────────────────────────────────────────
+    // ─── CloudWatch Dashboard ─────────────────────────────────────────────────
     new cloudwatch.Dashboard(this, 'ApplyticDashboard', {
       dashboardName: 'applytic-overview',
       widgets: [
@@ -292,6 +347,9 @@ export class ApplyticStack extends cdk.Stack {
               applicationsLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               insightsLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               digestLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
+              followUpLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
+              settingsLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
+              notesLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -301,6 +359,9 @@ export class ApplyticStack extends cdk.Stack {
               applicationsLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               insightsLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               digestLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
+              followUpLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
+              settingsLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
+              notesLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -361,6 +422,7 @@ export class ApplyticStack extends cdk.Stack {
       authorizationType: apigateway.AuthorizationType.COGNITO,
     };
 
+    // ─── existing routes ──────────────────────────────────────────────────────
     const appsResource = api.root.addResource('applications');
     appsResource.addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appsResource.addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
@@ -369,7 +431,6 @@ export class ApplyticStack extends cdk.Stack {
     appResource.addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appResource.addMethod('PUT', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appResource.addMethod('DELETE', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
-
     appResource.addResource('status').addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
 
     const insightsResource = api.root.addResource('insights');
@@ -380,6 +441,20 @@ export class ApplyticStack extends cdk.Stack {
     resumesResource.addResource('upload-url').addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     resumesResource.addResource('list').addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
 
+    // ─── v2.0: /users/settings ────────────────────────────────────────────────
+    const usersResource = api.root.addResource('users');
+    const settingsResource = usersResource.addResource('settings');
+    settingsResource.addMethod('GET', new apigateway.LambdaIntegration(settingsLambda), authOptions);
+    settingsResource.addMethod('PUT', new apigateway.LambdaIntegration(settingsLambda), authOptions);
+
+    // ─── v2.0: /applications/{appId}/notes routes ─────────────────────────────
+    const notesResource = appResource.addResource('notes');
+    notesResource.addMethod('GET', new apigateway.LambdaIntegration(notesLambda), authOptions);
+    notesResource.addMethod('POST', new apigateway.LambdaIntegration(notesLambda), authOptions);
+
+    const noteResource = notesResource.addResource('{noteId}');
+    noteResource.addMethod('DELETE', new apigateway.LambdaIntegration(notesLambda), authOptions);
+
     // ─── Outputs ──────────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url, description: 'REST API base URL' });
     new cdk.CfnOutput(this, 'FrontendUrl', { value: cloudfrontDomain });
@@ -387,6 +462,6 @@ export class ApplyticStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, 'ResumeBucketName', { value: resumeBucket.bucketName });
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: alarmTopic.topicArn });
-    new cdk.CfnOutput(this, 'SharedLayerArn', { value: sharedLayer.layerVersionArn, description: 'Shared Lambda Layer ARN' });
+    new cdk.CfnOutput(this, 'SharedLayerArn', { value: sharedLayer.layerVersionArn });
   }
 }
