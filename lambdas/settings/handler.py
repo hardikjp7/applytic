@@ -2,16 +2,11 @@
 Settings Lambda - v2.0
 Handles: GET /users/settings, PUT /users/settings
 
-Manages per-user settings stored as a USER entity in DynamoDB:
-  PK = USER#userId
-  SK = SETTINGS
-  weeklyGoal     - int, applications per week target (default 10)
-  streakCount    - int, consecutive weeks hitting goal (default 0)
-  streakLastUpdated - YYYY-MM-DD, date streak was last computed
-
-Streak logic:
-  - On GET: streak is computed live from application velocity data
-  - On PUT: only weeklyGoal is user-settable; streak fields are system-managed
+Fix: compute_streak was using a rolling 7-day window (days//7) which means
+"last week" could span parts of two calendar weeks, giving wrong counts.
+Now uses proper ISO week numbers so week_1 = last Mon-Sun, week_2 = the
+Mon-Sun before that, etc.  This matches what the Dashboard progress bar
+shows (current ISO week Mon-Sun).
 """
 import os
 import json
@@ -52,7 +47,6 @@ class UpdateSettingsRequest(BaseModel):
 
 @tracer.capture_method
 def get_settings(user_id: str) -> dict:
-    """Fetch settings for user. Returns defaults if no settings record exists yet."""
     result = table.get_item(
         Key={"PK": f"USER#{user_id}", "SK": "SETTINGS"}
     )
@@ -72,15 +66,29 @@ def get_settings(user_id: str) -> dict:
     }
 
 
+def _get_iso_week_start(dt: datetime) -> datetime:
+    """Return the Monday 00:00:00 UTC of the ISO week containing dt."""
+    # weekday(): Mon=0 ... Sun=6
+    monday = dt - timedelta(days=dt.weekday())
+    return monday.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+
+
 @tracer.capture_method
 def compute_streak(user_id: str, weekly_goal: int) -> tuple[int, str]:
     """
-    Compute streak by looking at application velocity over past 8 weeks.
-    A week counts toward streak if applications >= weeklyGoal.
-    Streak breaks on the first week (going backward) that misses the goal.
-    Returns (streak_count, last_updated_date).
+    Compute streak using proper ISO week boundaries.
+
+    week_0  = current week  (Mon 00:00 UTC .. now)   - excluded, may be incomplete
+    week_1  = last week     (previous Mon .. Sun)
+    week_2  = two weeks ago
+    ...up to week_8
+
+    A week counts toward the streak if applications >= weekly_goal.
+    The streak breaks on the first week (going backward from week_1)
+    that misses the goal.
+
+    Returns (streak_count, today_str).
     """
-    # Fetch all applications for user
     result = table.query(
         IndexName="GSI1",
         KeyConditionExpression=Key("GSI1PK").eq(f"USER#{user_id}"),
@@ -93,7 +101,14 @@ def compute_streak(user_id: str, weekly_goal: int) -> tuple[int, str]:
     if not apps:
         return 0, today_str
 
-    # Count apps per ISO week (week_0 = current week, week_1 = last week, etc.)
+    # Build week-start boundaries for the last 9 ISO weeks (0..8)
+    current_week_start = _get_iso_week_start(now)
+    week_starts = [current_week_start - timedelta(weeks=i) for i in range(9)]
+    # week_starts[0] = start of this week
+    # week_starts[1] = start of last week
+    # week_starts[i+1] = end of week i (exclusive)
+
+    # Count apps per ISO week index
     weekly_counts: dict[int, int] = {}
     for app in apps:
         date_str = app.get("dateApplied", "")
@@ -104,27 +119,33 @@ def compute_streak(user_id: str, weekly_goal: int) -> tuple[int, str]:
                 applied = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 if applied.tzinfo is None:
                     applied = applied.replace(tzinfo=timezone.utc)
-            weeks_ago = (now - applied).days // 7
-            if 0 <= weeks_ago <= 7:  # only look at last 8 weeks
-                weekly_counts[weeks_ago] = weekly_counts.get(weeks_ago, 0) + 1
+
+            # Find which week bucket this app falls in
+            for i in range(8):
+                week_start = week_starts[i]       # Monday of week i
+                week_end   = week_starts[i - 1] if i > 0 else now + timedelta(days=1)
+                if week_start <= applied < week_end:
+                    weekly_counts[i] = weekly_counts.get(i, 0) + 1
+                    break
         except (ValueError, AttributeError):
             continue
 
-    # Walk backward from last week (week_1) — current week may be incomplete
+    logger.info("Weekly counts", extra={"counts": weekly_counts, "goal": weekly_goal})
+
+    # Walk backward from week_1 (skip week_0 - current incomplete week)
     streak = 0
     for week in range(1, 9):
         count = weekly_counts.get(week, 0)
         if count >= weekly_goal:
             streak += 1
         else:
-            break  # streak broken
+            break
 
     return streak, today_str
 
 
 @tracer.capture_method
 def upsert_settings(user_id: str, weekly_goal: int, streak_count: int, streak_last_updated: str) -> dict:
-    """Write or update the SETTINGS record for a user."""
     ts = now_iso()
     item = {
         "PK": f"USER#{user_id}",
@@ -136,7 +157,6 @@ def upsert_settings(user_id: str, weekly_goal: int, streak_count: int, streak_la
         "updatedAt": ts,
         "entityType": "USER_SETTINGS",
     }
-    # Add createdAt only on first write via condition
     try:
         table.put_item(
             Item={**item, "createdAt": ts},
@@ -144,7 +164,6 @@ def upsert_settings(user_id: str, weekly_goal: int, streak_count: int, streak_la
         )
     except ClientError as e:
         if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            # Already exists - update without overwriting createdAt
             table.update_item(
                 Key={"PK": f"USER#{user_id}", "SK": "SETTINGS"},
                 UpdateExpression="SET weeklyGoal = :g, streakCount = :s, streakLastUpdated = :sl, updatedAt = :u",
@@ -180,7 +199,6 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             settings = get_settings(user_id)
             streak, last_updated = compute_streak(user_id, settings["weeklyGoal"])
 
-            # Persist updated streak back if it changed
             if streak != settings["streakCount"] or not settings["exists"]:
                 upsert_settings(user_id, settings["weeklyGoal"], streak, last_updated)
 
@@ -198,7 +216,6 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             except Exception as e:
                 return resp(400, {"error": f"Validation error: {e}"}, event)
 
-            # Recompute streak with new goal before saving
             streak, last_updated = compute_streak(user_id, req.weeklyGoal)
             upsert_settings(user_id, req.weeklyGoal, streak, last_updated)
 
