@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { X, ExternalLink, Trash2, Save, Clock } from 'lucide-react'
+import { X, ExternalLink, Trash2, Save, Clock, Send, MessageSquare } from 'lucide-react'
 import type { Application, AppStatus } from '../../types'
 import { STATUS_LABELS, STATUS_COLORS, SOURCE_LABELS } from '../../lib/utils'
 import { formatDistanceToNow, format } from 'date-fns'
 import ConfirmDialog from '../layout/ConfirmDialog'
+import { useNotes } from '../../hooks/useNotes'
 
 interface Props {
   app: Application
@@ -20,14 +21,39 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
   const [editing, setEditing] = useState(false)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [form, setForm] = useState({
-    company: app.company, role: app.role, source: app.source,
-    resumeVersion: app.resumeVersion, companySize: app.companySize,
-    jobDescUrl: app.jobDescUrl, notes: app.notes, dateApplied: app.dateApplied,
+    company: app.company,
+    role: app.role,
+    source: app.source,
+    resumeVersion: app.resumeVersion,
+    companySize: app.companySize,
+    jobDescUrl: app.jobDescUrl,
+    notes: app.notes,
+    dateApplied: app.dateApplied,
+    followUpDate: app.followUpDate ?? '',   // Bug 1 fix: add followUpDate to form
   })
+  const [noteInput, setNoteInput] = useState('')
+
+  // Bug 2 fix: use notes timeline hook
+  const { notes, loading: notesLoading, submitting, addNote, removeNote } = useNotes(app.appId)
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
-  const handleSave = () => { onSave(app.appId, form); setEditing(false) }
+
+  const handleSave = () => {
+    onSave(app.appId, {
+      ...form,
+      // Send null when field is cleared so the backend clears it
+      followUpDate: form.followUpDate.trim() === '' ? null : form.followUpDate,
+    })
+    setEditing(false)
+  }
+
   const handleDelete = () => setShowConfirmDelete(true)
+
+  const handleAddNote = async () => {
+    if (!noteInput.trim()) return
+    await addNote(noteInput)
+    setNoteInput('')
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -82,8 +108,11 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
             <Field label="Source" dark>
               {editing ? (
                 <select className={inp} value={form.source} onChange={e => set('source', e.target.value)}>
-                  <option value="linkedin">LinkedIn</option><option value="referral">Referral</option>
-                  <option value="cold">Cold Apply</option><option value="job-board">Job Board</option><option value="unknown">Other</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="referral">Referral</option>
+                  <option value="cold">Cold Apply</option>
+                  <option value="job-board">Job Board</option>
+                  <option value="unknown">Other</option>
                 </select>
               ) : <p className="text-sm text-gray-800 dark:text-gray-200">{SOURCE_LABELS[app.source] ?? app.source}</p>}
             </Field>
@@ -98,7 +127,10 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
             <Field label="Company size" dark>
               {editing ? (
                 <select className={inp} value={form.companySize} onChange={e => set('companySize', e.target.value)}>
-                  <option value="">Unknown</option><option value="startup">Startup</option><option value="mid">Mid-size</option><option value="enterprise">Enterprise</option>
+                  <option value="">Unknown</option>
+                  <option value="startup">Startup</option>
+                  <option value="mid">Mid-size</option>
+                  <option value="enterprise">Enterprise</option>
                 </select>
               ) : <p className="text-sm text-gray-800 dark:text-gray-200">{app.companySize || '—'}</p>}
             </Field>
@@ -111,15 +143,97 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                 : <p className="text-sm text-gray-400">—</p>}
           </Field>
 
-          <Field label="Notes" dark>
-            {editing ? <textarea className={`${inp} resize-none`} rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any notes..." />
+          {/* Bug 1 fix: Follow-up date field */}
+          <Field label="Follow-up date" dark>
+            {editing ? (
+              <div className="space-y-1">
+                <input
+                  type="date"
+                  className={inp}
+                  value={form.followUpDate ?? ''}
+                  onChange={e => set('followUpDate', e.target.value)}
+                />
+                <p className="text-xs text-gray-400">Leave empty to clear the follow-up reminder.</p>
+              </div>
+            ) : app.followUpDate ? (
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-gray-800 dark:text-gray-200">{app.followUpDate}</p>
+                {new Date(app.followUpDate) <= new Date() && ['applied', 'screened'].includes(app.status) && (
+                  <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">Overdue</span>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">—</p>
+            )}
+          </Field>
+
+          {/* Application-level notes (quick field) */}
+          <Field label="Quick notes" dark>
+            {editing
+              ? <textarea className={`${inp} resize-none`} rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any quick notes..." />
               : <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{app.notes || '—'}</p>}
           </Field>
+
+          {/* Bug 2 fix: Notes timeline */}
+          <div>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+              <MessageSquare size={11} /> Notes timeline
+            </p>
+
+            {/* Existing notes list */}
+            <div className="space-y-2 mb-3">
+              {notesLoading ? (
+                <div className="space-y-2">
+                  {[...Array(2)].map((_, i) => (
+                    <div key={i} className="h-12 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : notes.length === 0 ? (
+                <p className="text-xs text-gray-300 dark:text-gray-600 py-2">No notes yet. Add one below.</p>
+              ) : (
+                notes.map(note => (
+                  <div key={note.noteId} className="group flex items-start gap-2 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
+                        {format(new Date(note.createdAt), 'MMM d, yyyy · h:mm a')}
+                      </p>
+                      <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{note.content}</p>
+                    </div>
+                    <button
+                      onClick={() => removeNote(note.noteId)}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-0.5"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Add note input */}
+            <div className="flex gap-2">
+              <input
+                className="flex-1 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                placeholder="Add a note..."
+                value={noteInput}
+                onChange={e => setNoteInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAddNote()}
+                disabled={submitting}
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={submitting || !noteInput.trim()}
+                className="px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-800 disabled:opacity-40 transition-colors"
+              >
+                <Send size={14} />
+              </button>
+            </div>
+          </div>
 
           {/* Timeline */}
           <div>
             <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-              <Clock size={11} /> Timeline
+              <Clock size={11} /> Status timeline
             </p>
             <div className="space-y-2">
               <TimelineEvent label="Added to tracker" date={app.createdAt} color="bg-gray-200 dark:bg-gray-700" />
