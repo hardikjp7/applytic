@@ -2,6 +2,22 @@
 export default {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  safelist: [
+    'border-l-blue-400',
+    'border-l-purple-400',
+    'border-l-amber-400',
+    'border-l-green-400',
+    'border-l-red-400',
+    'border-l-gray-300',
+    'border-l-gray-500',
+    'dark:border-l-blue-400',
+    'dark:border-l-purple-400',
+    'dark:border-l-amber-400',
+    'dark:border-l-green-400',
+    'dark:border-l-red-400',
+    'dark:border-l-gray-300',
+    'dark:border-l-gray-500',
+  ],
   theme: {
     extend: {
       colors: {

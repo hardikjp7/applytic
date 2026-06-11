@@ -12,13 +12,15 @@ import type { AppStatus, Application } from '../../types'
 import type { ImportRow } from '../../lib/csv'
 import toast from 'react-hot-toast'
 
+// Bug fix: each entry has both light and dark variants so dark:border-gray-700
+// on the card outer border cannot override the left border color.
 const STATUS_BORDER: Record<AppStatus, string> = {
-  applied:   'border-l-blue-400',
-  screened:  'border-l-purple-400',
-  interview: 'border-l-amber-400',
-  offer:     'border-l-green-400',
-  rejected:  'border-l-red-400',
-  withdrawn: 'border-l-gray-300',
+  applied:   'border-l-blue-400   dark:border-l-blue-400',
+  screened:  'border-l-purple-400 dark:border-l-purple-400',
+  interview: 'border-l-amber-400  dark:border-l-amber-400',
+  offer:     'border-l-green-400  dark:border-l-green-400',
+  rejected:  'border-l-red-400    dark:border-l-red-400',
+  withdrawn: 'border-l-gray-300   dark:border-l-gray-500',
 }
 
 function SkeletonCard() {
@@ -78,7 +80,6 @@ export default function KanbanBoard() {
   const byStatus = (status: AppStatus) => filtered.filter(a => a.status === status)
   const clearFilters = () => { setSearch(''); setFilterSource('') }
 
-  // v2.0: handle CSV import - batch create
   const handleImport = async (rows: ImportRow[]): Promise<{ imported: number; failed: number }> => {
     let imported = 0
     let failed = 0
@@ -136,7 +137,6 @@ export default function KanbanBoard() {
           <p className="text-sm text-gray-400 mt-0.5">0 applications</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* v2.0: import button visible even when empty */}
           <button
             onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 rounded-lg transition-colors"
@@ -179,7 +179,6 @@ export default function KanbanBoard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* v2.0: export + import buttons */}
           <CsvExportButton applications={applications} />
           <button
             onClick={() => setShowImport(true)}
@@ -299,7 +298,6 @@ export default function KanbanBoard() {
                               {app.resumeVersion && (
                                 <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">{app.resumeVersion}</span>
                               )}
-                              {/* v2.0: follow-up badge */}
                               {app.followUpDate && new Date(app.followUpDate) <= new Date() && ['applied', 'screened'].includes(app.status) && (
                                 <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded ml-auto">
                                   Follow up
