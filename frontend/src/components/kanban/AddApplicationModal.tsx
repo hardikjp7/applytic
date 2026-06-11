@@ -24,7 +24,10 @@ export default function AddApplicationModal({ onClose, onSave }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.company || !form.role) return
-    onSave(form)
+    onSave({
+      ...form,
+      followUpDate: form.followUpDate?.trim() === '' ? null : form.followUpDate,
+    })
     onClose()
   }
 
@@ -77,9 +80,21 @@ export default function AddApplicationModal({ onClose, onSave }: Props) {
               <input className={inp} value={form.resumeVersion} onChange={e => set('resumeVersion', e.target.value)} placeholder="v1-ml-focused" />
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Job description URL</label>
-            <input className={inp} value={form.jobDescUrl} onChange={e => set('jobDescUrl', e.target.value)} placeholder="https://..." />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Job description URL</label>
+              <input className={inp} value={form.jobDescUrl} onChange={e => set('jobDescUrl', e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Follow-up date</label>
+              <input
+                type="date"
+                className={inp}
+                value={form.followUpDate ?? ''}
+                onChange={e => set('followUpDate', e.target.value || '')}
+              />
+              <p className="text-xs text-gray-400 mt-1">Optional - get a reminder to follow up.</p>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Notes</label>
