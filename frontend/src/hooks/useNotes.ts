@@ -1,52 +1,45 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getNotes, createNote, deleteNote } from '../lib/api'
 import type { Note } from '../types'
 import toast from 'react-hot-toast'
 
+export const notesKey = (appId: string) => ['notes', appId] as const
+
 export function useNotes(appId: string) {
-  const [notes, setNotes] = useState<Note[]>([])
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
+  const qc = useQueryClient()
 
-  const load = useCallback(async () => {
-    if (!appId) return
-    try {
-      setLoading(true)
-      const data = await getNotes(appId)
-      setNotes(data)
-    } catch {
-      // silently fail - notes are non-critical
-    } finally {
-      setLoading(false)
-    }
-  }, [appId])
+  const { data: notes = [], isLoading: loading } = useQuery({
+    queryKey: notesKey(appId),
+    queryFn: () => getNotes(appId),
+    enabled: !!appId,
+  })
 
-  useEffect(() => { load() }, [load])
-
-  const addNote = async (content: string) => {
-    if (!content.trim()) return
-    try {
-      setSubmitting(true)
-      const note = await createNote(appId, content.trim())
-      setNotes(prev => [...prev, note])
+  const addMutation = useMutation({
+    mutationFn: (content: string) => createNote(appId, content),
+    onSuccess: (note) => {
+      qc.setQueryData<Note[]>(notesKey(appId), prev => [...(prev ?? []), note])
       toast.success('Note added')
-      return note
-    } catch {
-      toast.error('Failed to add note')
-    } finally {
-      setSubmitting(false)
-    }
-  }
+    },
+    onError: () => toast.error('Failed to add note'),
+  })
 
-  const removeNote = async (noteId: string) => {
-    try {
-      await deleteNote(appId, noteId)
-      setNotes(prev => prev.filter(n => n.noteId !== noteId))
+  const removeMutation = useMutation({
+    mutationFn: (noteId: string) => deleteNote(appId, noteId),
+    onSuccess: (_, noteId) => {
+      qc.setQueryData<Note[]>(notesKey(appId), prev =>
+        prev?.filter(n => n.noteId !== noteId) ?? []
+      )
       toast.success('Note deleted')
-    } catch {
-      toast.error('Failed to delete note')
-    }
-  }
+    },
+    onError: () => toast.error('Failed to delete note'),
+  })
 
-  return { notes, loading, submitting, addNote, removeNote, reload: load }
+  return {
+    notes,
+    loading,
+    submitting: addMutation.isPending,
+    addNote: (content: string) => addMutation.mutateAsync(content),
+    removeNote: (noteId: string) => removeMutation.mutate(noteId),
+    reload: () => qc.invalidateQueries({ queryKey: notesKey(appId) }),
+  }
 }

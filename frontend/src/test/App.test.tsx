@@ -1,17 +1,15 @@
 /**
- * Critical path frontend tests - v1.3
- * Covers: AddApplicationModal form, KanbanBoard empty state, Dashboard stats
- * Run: npm run test (from frontend/)
+ * Critical path frontend tests - v2.1
+ * Updated to wrap renders in QueryClientProvider for React Query compatibility
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AddApplicationModal from '../components/kanban/AddApplicationModal'
 import Dashboard from '../pages/Dashboard'
 import KanbanBoard from '../components/kanban/KanbanBoard'
-
-// ── Mock api module ───────────────────────────────────────────────────────────
 
 vi.mock('../lib/api', () => ({
   getApplications: vi.fn(),
@@ -24,6 +22,11 @@ vi.mock('../lib/api', () => ({
   getUploadUrl: vi.fn(),
   uploadResumeToS3: vi.fn(),
   listResumes: vi.fn(),
+  getSettings: vi.fn(),
+  updateSettings: vi.fn(),
+  getNotes: vi.fn(),
+  createNote: vi.fn(),
+  deleteNote: vi.fn(),
 }))
 
 vi.mock('../lib/amplify', () => ({
@@ -37,11 +40,23 @@ vi.mock('../lib/amplify', () => ({
 
 import * as api from '../lib/api'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  })
+}
 
-const renderWithRouter = (ui: React.ReactElement) =>
-  render(<MemoryRouter>{ui}</MemoryRouter>)
-
+const renderWithProviders = (ui: React.ReactElement) => {
+  const client = createTestQueryClient()
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>
+  )
+}
 
 // ── AddApplicationModal ───────────────────────────────────────────────────────
 
@@ -49,9 +64,7 @@ describe('AddApplicationModal', () => {
   const mockOnClose = vi.fn()
   const mockOnSave = vi.fn()
 
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+  beforeEach(() => vi.clearAllMocks())
 
   it('renders company and role inputs', () => {
     render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
@@ -72,16 +85,14 @@ describe('AddApplicationModal', () => {
 
   it('does not call onSave when company is empty', async () => {
     render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    const roleInput = screen.getByPlaceholderText('ML Engineer')
-    await userEvent.type(roleInput, 'Software Engineer')
+    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Software Engineer')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave).not.toHaveBeenCalled()
   })
 
   it('does not call onSave when role is empty', async () => {
     render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    const companyInput = screen.getByPlaceholderText('Anthropic')
-    await userEvent.type(companyInput, 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave).not.toHaveBeenCalled()
   })
@@ -104,22 +115,26 @@ describe('AddApplicationModal', () => {
     await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
     await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
-    const savedData = mockOnSave.mock.calls[0][0]
-    expect(savedData.source).toBe('linkedin')
+    expect(mockOnSave.mock.calls[0][0].source).toBe('linkedin')
+  })
+
+  it('renders follow-up date field', () => {
+    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    expect(screen.getByText(/follow-up date/i)).toBeInTheDocument()
   })
 })
-
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 describe('Dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(api.getSettings).mockResolvedValue({ weeklyGoal: 10, streakCount: 0, streakLastUpdated: null })
   })
 
   it('shows empty state when no applications', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([])
-    renderWithRouter(<Dashboard />)
+    renderWithProviders(<Dashboard />)
     await waitFor(() => {
       expect(screen.getByText(/nothing tracked yet/i)).toBeInTheDocument()
     })
@@ -127,10 +142,10 @@ describe('Dashboard', () => {
 
   it('shows correct total applied count', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([
-      { appId: '1', userId: 'u', company: 'Stripe', role: 'Eng', status: 'applied', source: 'linkedin', resumeVersion: 'v1', companySize: '', jobDescUrl: '', notes: '', dateApplied: '2024-01-01', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
-      { appId: '2', userId: 'u', company: 'Google', role: 'SWE', status: 'interview', source: 'linkedin', resumeVersion: 'v1', companySize: '', jobDescUrl: '', notes: '', dateApplied: '2024-01-02', createdAt: '2024-01-02T00:00:00Z', updatedAt: '2024-01-02T00:00:00Z' },
+      { appId: '1', userId: 'u', company: 'Stripe', role: 'Eng', status: 'applied', source: 'linkedin', resumeVersion: 'v1', companySize: '', jobDescUrl: '', notes: '', followUpDate: null, dateApplied: '2024-01-01', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
+      { appId: '2', userId: 'u', company: 'Google', role: 'SWE', status: 'interview', source: 'linkedin', resumeVersion: 'v1', companySize: '', jobDescUrl: '', notes: '', followUpDate: null, dateApplied: '2024-01-02', createdAt: '2024-01-02T00:00:00Z', updatedAt: '2024-01-02T00:00:00Z' },
     ])
-    renderWithRouter(<Dashboard />)
+    renderWithProviders(<Dashboard />)
     await waitFor(() => {
       expect(screen.getByText('2')).toBeInTheDocument()
     })
@@ -138,24 +153,21 @@ describe('Dashboard', () => {
 
   it('shows link to board from empty state', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([])
-    renderWithRouter(<Dashboard />)
+    renderWithProviders(<Dashboard />)
     await waitFor(() => {
       expect(screen.getByRole('link', { name: /go to board/i })).toBeInTheDocument()
     })
   })
 })
 
-
 // ── KanbanBoard ───────────────────────────────────────────────────────────────
 
 describe('KanbanBoard', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+  beforeEach(() => vi.clearAllMocks())
 
   it('shows empty state when no applications', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([])
-    renderWithRouter(<KanbanBoard />)
+    renderWithProviders(<KanbanBoard />)
     await waitFor(() => {
       expect(screen.getByText(/no applications yet/i)).toBeInTheDocument()
     })
@@ -163,10 +175,8 @@ describe('KanbanBoard', () => {
 
   it('shows Add application button', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([])
-    renderWithRouter(<KanbanBoard />)
+    renderWithProviders(<KanbanBoard />)
     await waitFor(() => {
-      // Empty state renders two buttons matching this pattern:
-      // "Add application" (header) and "Add first application" (body)
       const buttons = screen.getAllByRole('button', { name: /add.*application/i })
       expect(buttons.length).toBeGreaterThanOrEqual(1)
     })
@@ -174,7 +184,7 @@ describe('KanbanBoard', () => {
 
   it('shows add application modal when button is clicked', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([])
-    renderWithRouter(<KanbanBoard />)
+    renderWithProviders(<KanbanBoard />)
     await waitFor(() => screen.getByRole('button', { name: /add first application/i }))
     await userEvent.click(screen.getByRole('button', { name: /add first application/i }))
     expect(screen.getByPlaceholderText('Anthropic')).toBeInTheDocument()
@@ -182,9 +192,9 @@ describe('KanbanBoard', () => {
 
   it('shows application cards when applications exist', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([
-      { appId: '1', userId: 'u', company: 'Stripe', role: 'ML Engineer', status: 'applied', source: 'linkedin', resumeVersion: 'v1', companySize: '', jobDescUrl: '', notes: '', dateApplied: '2024-01-01', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
+      { appId: '1', userId: 'u', company: 'Stripe', role: 'ML Engineer', status: 'applied', source: 'linkedin', resumeVersion: 'v1', companySize: '', jobDescUrl: '', notes: '', followUpDate: null, dateApplied: '2024-01-01', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
     ])
-    renderWithRouter(<KanbanBoard />)
+    renderWithProviders(<KanbanBoard />)
     await waitFor(() => {
       expect(screen.getByText('Stripe')).toBeInTheDocument()
       expect(screen.getByText('ML Engineer')).toBeInTheDocument()

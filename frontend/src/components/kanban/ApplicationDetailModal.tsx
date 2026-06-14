@@ -33,7 +33,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
   })
   const [noteInput, setNoteInput] = useState('')
 
-  // Bug 2 fix: use notes timeline hook
+  // Bug 2 fix: use notes timeline hook (v2.1: React Query backed)
   const { notes, loading: notesLoading, submitting, addNote, removeNote } = useNotes(app.appId)
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -51,8 +51,12 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
 
   const handleAddNote = async () => {
     if (!noteInput.trim()) return
-    await addNote(noteInput)
-    setNoteInput('')
+    try {
+      await addNote(noteInput)
+      setNoteInput('')
+    } catch {
+      // error toast already shown by useNotes - keep the draft so the user can retry
+    }
   }
 
   return (
@@ -122,7 +126,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
             </Field>
             <Field label="Resume version" dark>
               {editing ? <input className={inp} value={form.resumeVersion} onChange={e => set('resumeVersion', e.target.value)} />
-                : <p className="text-sm text-gray-800 dark:text-gray-200">{app.resumeVersion || '—'}</p>}
+                : <p className="text-sm text-gray-800 dark:text-gray-200">{app.resumeVersion || '-'}</p>}
             </Field>
             <Field label="Company size" dark>
               {editing ? (
@@ -132,7 +136,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                   <option value="mid">Mid-size</option>
                   <option value="enterprise">Enterprise</option>
                 </select>
-              ) : <p className="text-sm text-gray-800 dark:text-gray-200">{app.companySize || '—'}</p>}
+              ) : <p className="text-sm text-gray-800 dark:text-gray-200">{app.companySize || '-'}</p>}
             </Field>
           </div>
 
@@ -140,7 +144,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
             {editing ? <input className={inp} value={form.jobDescUrl} onChange={e => set('jobDescUrl', e.target.value)} placeholder="https://..." />
               : app.jobDescUrl
                 ? <a href={app.jobDescUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm text-brand-600 dark:text-brand-400 hover:underline"><ExternalLink size={12} /> View posting</a>
-                : <p className="text-sm text-gray-400">—</p>}
+                : <p className="text-sm text-gray-400">-</p>}
           </Field>
 
           {/* Bug 1 fix: Follow-up date field */}
@@ -163,7 +167,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                 )}
               </div>
             ) : (
-              <p className="text-sm text-gray-400">—</p>
+              <p className="text-sm text-gray-400">-</p>
             )}
           </Field>
 
@@ -171,7 +175,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
           <Field label="Quick notes" dark>
             {editing
               ? <textarea className={`${inp} resize-none`} rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any quick notes..." />
-              : <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{app.notes || '—'}</p>}
+              : <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{app.notes || '-'}</p>}
           </Field>
 
           {/* Bug 2 fix: Notes timeline */}
@@ -249,7 +253,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
       {showConfirmDelete && (
         <ConfirmDialog
           title="Delete application"
-          message={`Remove ${app.company} — ${app.role}? This cannot be undone.`}
+          message={`Remove ${app.company} - ${app.role}? This cannot be undone.`}
           confirmLabel="Delete"
           danger
           onConfirm={() => { onDelete(app.appId); onClose() }}
