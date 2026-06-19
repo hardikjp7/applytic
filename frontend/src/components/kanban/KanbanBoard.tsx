@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
-import { Plus, ExternalLink, Trash2, Search, X, SlidersHorizontal } from 'lucide-react'
+import { Plus, ExternalLink, Trash2, Search, X, SlidersHorizontal, Keyboard, ChevronDown } from 'lucide-react'
 import { useApplications } from '../../hooks/useApplications'
 import AddApplicationModal from './AddApplicationModal'
 import ApplicationDetailModal from './ApplicationDetailModal'
 import ConfirmDialog from '../layout/ConfirmDialog'
+import ShortcutsHelpModal from '../layout/ShortcutsHelpModal'
 import CsvExportButton from './CsvExportButton'
 import CsvImportModal from './CsvImportModal'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_COLUMNS } from '../../lib/utils'
@@ -22,6 +23,20 @@ const STATUS_BORDER: Record<AppStatus, string> = {
   rejected:  'border-l-red-400    dark:border-l-red-400',
   withdrawn: 'border-l-gray-300   dark:border-l-gray-500',
 }
+
+// v2.1 Part 2: column pagination - show this many cards per column before
+// requiring a "Show more" click.
+const PAGE_SIZE = 20
+
+function defaultVisibleCounts(): Record<AppStatus, number> {
+  return STATUS_COLUMNS.reduce((acc, status) => {
+    acc[status] = PAGE_SIZE
+    return acc
+  }, {} as Record<AppStatus, number>)
+}
+
+// v2.1 Part 2: form fields where typing should suppress single-key shortcuts
+const TYPING_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
 
 function SkeletonCard() {
   return (
@@ -59,6 +74,10 @@ export default function KanbanBoard() {
   const [filterSource, setFilterSource] = useState('')
   const [showFilters, setShowFilters] = useState(false)
 
+  // v2.1 Part 2: shortcuts overlay + per-column visible counts
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
+  const [visibleCounts, setVisibleCounts] = useState<Record<AppStatus, number>>(defaultVisibleCounts)
+
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) return
     const newStatus = result.destination.droppableId as AppStatus
@@ -78,7 +97,55 @@ export default function KanbanBoard() {
 
   const isFiltering = search.trim() !== '' || filterSource !== ''
   const byStatus = (status: AppStatus) => filtered.filter(a => a.status === status)
+  const visibleByStatus = (status: AppStatus) => byStatus(status).slice(0, visibleCounts[status])
   const clearFilters = () => { setSearch(''); setFilterSource('') }
+
+  const showMore = (status: AppStatus) => {
+    setVisibleCounts(prev => ({ ...prev, [status]: prev[status] + PAGE_SIZE }))
+  }
+
+  // v2.1 Part 2: collapse columns back to the first page whenever the
+  // filtered set changes, so a new search/filter doesn't stay expanded
+  useEffect(() => {
+    setVisibleCounts(defaultVisibleCounts())
+  }, [search, filterSource])
+
+  // v2.1 Part 2: global keyboard shortcuts
+  // N      - open "Add application" (only when no dialog is open)
+  // Escape - close whichever dialog is currently open (topmost first)
+  // ?      - toggle the shortcuts help overlay (only when no dialog is open)
+  useEffect(() => {
+    const anyModalOpen = showModal || showImport || !!selectedApp || !!confirmDelete
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (confirmDelete) { setConfirmDelete(null); return }
+        if (selectedApp) { setSelectedApp(null); return }
+        if (showImport) { setShowImport(false); return }
+        if (showModal) { setShowModal(false); return }
+        if (showShortcutsHelp) { setShowShortcutsHelp(false); return }
+        return
+      }
+
+      const target = e.target as HTMLElement | null
+      const isTyping = !!target && (TYPING_TAGS.has(target.tagName) || target.isContentEditable)
+      if (isTyping) return
+
+      if ((e.key === 'n' || e.key === 'N') && !anyModalOpen && !showShortcutsHelp) {
+        e.preventDefault()
+        setShowModal(true)
+        return
+      }
+
+      if (e.key === '?' && !anyModalOpen) {
+        e.preventDefault()
+        setShowShortcutsHelp(s => !s)
+      }
+    }
+
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [showModal, showImport, selectedApp, confirmDelete, showShortcutsHelp])
 
   const handleImport = async (rows: ImportRow[]): Promise<{ imported: number; failed: number }> => {
     let imported = 0
@@ -138,6 +205,13 @@ export default function KanbanBoard() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowShortcutsHelp(true)}
+            className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard size={15} />
+          </button>
+          <button
             onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 rounded-lg transition-colors"
           >
@@ -153,7 +227,7 @@ export default function KanbanBoard() {
           <Plus size={20} className="text-brand-600 dark:text-brand-400" />
         </div>
         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">No applications yet</p>
-        <p className="text-sm text-gray-400 mb-5">Add your first application or import from a CSV file.</p>
+        <p className="text-sm text-gray-400 mb-5">Add your first application or import from a CSV file. Press <kbd className="px-1.5 py-0.5 text-xs font-mono bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded">N</kbd> to get started.</p>
         <div className="flex gap-2">
           <button onClick={() => setShowImport(true)} className="px-4 py-2 text-sm border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             Import CSV
@@ -165,6 +239,7 @@ export default function KanbanBoard() {
       </div>
       {showModal && <AddApplicationModal onClose={() => setShowModal(false)} onSave={(data) => create(data as Omit<Application, 'appId' | 'userId' | 'createdAt' | 'updatedAt'>)} />}
       {showImport && <CsvImportModal onClose={() => setShowImport(false)} onImport={handleImport} />}
+      {showShortcutsHelp && <ShortcutsHelpModal onClose={() => setShowShortcutsHelp(false)} />}
     </div>
   )
 
@@ -190,6 +265,13 @@ export default function KanbanBoard() {
             <Plus size={15} />
             <span className="hidden sm:inline">Add application</span>
             <span className="sm:hidden">Add</span>
+          </button>
+          <button
+            onClick={() => setShowShortcutsHelp(true)}
+            className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard size={15} />
           </button>
         </div>
       </div>
@@ -247,79 +329,98 @@ export default function KanbanBoard() {
       {/* Columns */}
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="flex gap-3 lg:gap-4 overflow-x-auto pb-4 flex-1">
-          {STATUS_COLUMNS.map(status => (
-            <div key={status} className="flex-shrink-0 w-60 lg:w-64">
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[status]}`}>
-                  {STATUS_LABELS[status]}
-                </span>
-                <span className="text-xs text-gray-400">{byStatus(status).length}</span>
-              </div>
-              <Droppable droppableId={status}>
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className={`min-h-32 rounded-xl p-2 space-y-2 transition-colors ${
-                      snapshot.isDraggingOver ? 'bg-brand-50 dark:bg-brand-900/20' : 'bg-gray-50 dark:bg-gray-900/50'
-                    }`}
-                  >
-                    {byStatus(status).length === 0 && <EmptyColumn status={status} filtered={isFiltering} />}
-                    {byStatus(status).map((app, index) => (
-                      <Draggable key={app.appId} draggableId={app.appId} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            onClick={() => !snapshot.isDragging && setSelectedApp(app)}
-                            className={`bg-white dark:bg-gray-800 rounded-lg p-3 border-l-4 border border-gray-100 dark:border-gray-700 text-sm transition-shadow cursor-pointer ${STATUS_BORDER[status]} ${
-                              snapshot.isDragging ? 'shadow-lg' : 'hover:shadow-sm hover:border-gray-200 dark:hover:border-gray-600'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-1">
-                              <div className="min-w-0">
-                                <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{app.company}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{app.role}</p>
+          {STATUS_COLUMNS.map(status => {
+            const columnApps = byStatus(status)
+            const visibleApps = visibleByStatus(status)
+            const remaining = columnApps.length - visibleApps.length
+
+            return (
+              <div key={status} className="flex-shrink-0 w-60 lg:w-64">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[status]}`}>
+                    {STATUS_LABELS[status]}
+                  </span>
+                  <span className="text-xs text-gray-400">{columnApps.length}</span>
+                </div>
+                <Droppable droppableId={status}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={`min-h-32 rounded-xl p-2 space-y-2 transition-colors ${
+                        snapshot.isDraggingOver ? 'bg-brand-50 dark:bg-brand-900/20' : 'bg-gray-50 dark:bg-gray-900/50'
+                      }`}
+                    >
+                      {columnApps.length === 0 && <EmptyColumn status={status} filtered={isFiltering} />}
+                      {visibleApps.map((app, index) => (
+                        <Draggable key={app.appId} draggableId={app.appId} index={index}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              onClick={() => !snapshot.isDragging && setSelectedApp(app)}
+                              className={`bg-white dark:bg-gray-800 rounded-lg p-3 border-l-4 border border-gray-100 dark:border-gray-700 text-sm transition-shadow cursor-pointer ${STATUS_BORDER[status]} ${
+                                snapshot.isDragging ? 'shadow-lg' : 'hover:shadow-sm hover:border-gray-200 dark:hover:border-gray-600'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-1">
+                                <div className="min-w-0">
+                                  <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{app.company}</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{app.role}</p>
+                                </div>
+                                <div className="flex gap-1 shrink-0">
+                                  {app.jobDescUrl && (
+                                    <a href={app.jobDescUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-gray-300 hover:text-brand-600 dark:hover:text-brand-400">
+                                      <ExternalLink size={13} />
+                                    </a>
+                                  )}
+                                  <button onClick={e => { e.stopPropagation(); setConfirmDelete(app) }} className="text-gray-300 hover:text-red-400">
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
                               </div>
-                              <div className="flex gap-1 shrink-0">
-                                {app.jobDescUrl && (
-                                  <a href={app.jobDescUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-gray-300 hover:text-brand-600 dark:hover:text-brand-400">
-                                    <ExternalLink size={13} />
-                                  </a>
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-xs text-gray-400 dark:text-gray-500">{app.source}</span>
+                                {app.resumeVersion && (
+                                  <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">{app.resumeVersion}</span>
                                 )}
-                                <button onClick={e => { e.stopPropagation(); setConfirmDelete(app) }} className="text-gray-300 hover:text-red-400">
-                                  <Trash2 size={13} />
-                                </button>
+                                {app.followUpDate && new Date(app.followUpDate) <= new Date() && ['applied', 'screened'].includes(app.status) && (
+                                  <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded ml-auto">
+                                    Follow up
+                                  </span>
+                                )}
                               </div>
+                              <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">{app.dateApplied}</p>
                             </div>
-                            <div className="flex items-center gap-2 mt-2">
-                              <span className="text-xs text-gray-400 dark:text-gray-500">{app.source}</span>
-                              {app.resumeVersion && (
-                                <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">{app.resumeVersion}</span>
-                              )}
-                              {app.followUpDate && new Date(app.followUpDate) <= new Date() && ['applied', 'screened'].includes(app.status) && (
-                                <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded ml-auto">
-                                  Follow up
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">{app.dateApplied}</p>
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+
+                {/* v2.1 Part 2: "Show more" pagination - keeps long columns from
+                    rendering hundreds of cards (and DnD nodes) at once. */}
+                {remaining > 0 && (
+                  <button
+                    onClick={() => showMore(status)}
+                    className="w-full mt-2 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-brand-600 dark:hover:text-brand-400 border border-dashed border-gray-200 dark:border-gray-700 hover:border-brand-300 dark:hover:border-brand-700 rounded-lg transition-colors"
+                  >
+                    <ChevronDown size={12} />
+                    Show {Math.min(PAGE_SIZE, remaining)} more ({remaining} hidden)
+                  </button>
                 )}
-              </Droppable>
-            </div>
-          ))}
+              </div>
+            )
+          })}
         </div>
       </DragDropContext>
 
       {showModal && <AddApplicationModal onClose={() => setShowModal(false)} onSave={(data) => create(data as Omit<Application, 'appId' | 'userId' | 'createdAt' | 'updatedAt'>)} />}
       {showImport && <CsvImportModal onClose={() => setShowImport(false)} onImport={handleImport} />}
+      {showShortcutsHelp && <ShortcutsHelpModal onClose={() => setShowShortcutsHelp(false)} />}
       {selectedApp && (
         <ApplicationDetailModal
           app={applications.find(a => a.appId === selectedApp.appId) ?? selectedApp}

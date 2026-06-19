@@ -63,7 +63,11 @@ export default function Dashboard() {
   const handleGoalSave = async () => {
     const n = parseInt(goalInput, 10)
     if (!isNaN(n) && n >= 1 && n <= 500) {
-      await saveGoal(n)
+      try {
+        await saveGoal(n)
+      } catch {
+        // error toast already shown by useSettings - just close the editor
+      }
     }
     setEditingGoal(false)
   }

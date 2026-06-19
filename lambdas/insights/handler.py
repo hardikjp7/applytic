@@ -1,6 +1,11 @@
 """
-Insights Lambda — v1.2
+Insights Lambda - v2.1
 Handles: GET /insights  POST /insights/chat
+
+v2.1 additions to compute_patterns():
+  - funnel: applied -> screened -> interview -> offer counts + step conversion rates
+  - responseRateTimeSeries: weekly response rate over last 8 ISO weeks
+  - statusHistory: applications that moved INTO each status per ISO week (last 8 weeks)
 """
 import json
 import os
@@ -39,6 +44,190 @@ class ChatRequest(BaseModel):
         return v
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _get_iso_week_start(dt: datetime) -> datetime:
+    """Return Monday 00:00:00 UTC of the ISO week containing dt."""
+    monday = dt - timedelta(days=dt.weekday())
+    return monday.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+
+
+def _week_label(dt: datetime) -> str:
+    """Return a short 'M/DD' label for the Monday of the week containing dt.
+    Uses lstrip('0') instead of %-m/%-d which is Linux-only and breaks on Windows."""
+    monday = _get_iso_week_start(dt)
+    m = monday.strftime("%m").lstrip("0") or "0"
+    d = monday.strftime("%d").lstrip("0") or "0"
+    return f"{m}/{d}"
+
+
+def _parse_date(date_str: str) -> datetime | None:
+    """Parse dateApplied / createdAt into a timezone-aware datetime. Returns None on failure."""
+    if not date_str:
+        return None
+    try:
+        if len(date_str) == 10:
+            return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        parsed = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+
+# ── v2.1: funnel ──────────────────────────────────────────────────────────────
+
+def _compute_funnel(apps: list) -> dict:
+    """
+    Simple linear funnel: applied -> screened -> interview -> offer.
+    Every application counts as 'applied'. Screened/interview/offer are
+    counted by current status only - this gives a current-state snapshot,
+    not a transition count, which is simpler and matches what users expect.
+
+    Returns:
+      stages: list of {stage, count, conversionFromPrev (%), conversionFromStart (%)}
+    """
+    total = len(apps)
+    if total == 0:
+        return {"stages": []}
+
+    status_counts = defaultdict(int)
+    for app in apps:
+        status_counts[app.get("status", "applied")] += 1
+
+    # Applications that ever reached screened or beyond
+    screened_plus = sum(
+        status_counts[s] for s in ("screened", "interview", "offer")
+    )
+    interview_plus = sum(status_counts[s] for s in ("interview", "offer"))
+    offer_count = status_counts["offer"]
+
+    stages_raw = [
+        ("Applied", total),
+        ("Screened", screened_plus),
+        ("Interview", interview_plus),
+        ("Offer", offer_count),
+    ]
+
+    stages = []
+    for i, (stage, count) in enumerate(stages_raw):
+        prev_count = stages_raw[i - 1][1] if i > 0 else count
+        conv_from_prev = round(count / prev_count * 100, 1) if prev_count > 0 else 0.0
+        conv_from_start = round(count / total * 100, 1) if total > 0 else 0.0
+        stages.append({
+            "stage": stage,
+            "count": count,
+            "conversionFromPrev": conv_from_prev if i > 0 else 100.0,
+            "conversionFromStart": conv_from_start,
+        })
+
+    return {"stages": stages}
+
+
+# ── v2.1: response rate time series ──────────────────────────────────────────
+
+def _compute_response_rate_time_series(apps: list) -> list:
+    """
+    Weekly response rate over the last 8 completed ISO weeks (current week excluded).
+
+    A week's response rate = (apps applied that week that have since moved to
+    screened/interview/offer) / (total apps applied that week) * 100.
+
+    We use dateApplied to bucket apps into their week, then look at current
+    status to determine if a response was received.
+
+    Returns list of {week (Mon DD label), responseRate (float), total (int)},
+    ordered oldest -> newest.  Weeks with 0 applications are included as 0%.
+    """
+    if not apps:
+        return []
+
+    responded_statuses = {"screened", "interview", "offer"}
+    now = datetime.now(timezone.utc)
+    current_week_start = _get_iso_week_start(now)
+
+    # Build 8 week buckets: week_starts[0] = oldest week, [7] = last completed week
+    week_starts = [current_week_start - timedelta(weeks=8 - i) for i in range(8)]
+
+    # total and responded per week index
+    totals: dict[int, int] = defaultdict(int)
+    responded: dict[int, int] = defaultdict(int)
+
+    for app in apps:
+        dt = _parse_date(app.get("dateApplied", ""))
+        if dt is None:
+            continue
+        # find which bucket
+        for i, ws in enumerate(week_starts):
+            ws_end = ws + timedelta(weeks=1)
+            if ws <= dt < ws_end:
+                totals[i] += 1
+                if app.get("status") in responded_statuses:
+                    responded[i] += 1
+                break
+
+    result = []
+    for i, ws in enumerate(week_starts):
+        t = totals[i]
+        r = responded[i]
+        rate = round(r / t * 100, 1) if t > 0 else 0.0
+        result.append({
+            "week": _week_label(ws),
+            "responseRate": rate,
+            "total": t,
+        })
+
+    return result
+
+
+# ── v2.1: status history ──────────────────────────────────────────────────────
+
+def _compute_status_history(apps: list) -> list:
+    """
+    For each of the last 8 completed ISO weeks, count how many applications
+    are currently in each status (applied, screened, interview, offer, rejected).
+
+    We bucket by dateApplied for simplicity - this gives a picture of "what
+    happened to apps added each week", which is intuitive for a job tracker.
+
+    Returns list of {week, applied, screened, interview, offer, rejected},
+    ordered oldest -> newest.
+    """
+    if not apps:
+        return []
+
+    now = datetime.now(timezone.utc)
+    current_week_start = _get_iso_week_start(now)
+    week_starts = [current_week_start - timedelta(weeks=8 - i) for i in range(8)]
+
+    TRACKED_STATUSES = ["applied", "screened", "interview", "offer", "rejected"]
+
+    # counts[week_index][status] = int
+    counts: dict[int, dict[str, int]] = {i: defaultdict(int) for i in range(8)}
+
+    for app in apps:
+        dt = _parse_date(app.get("dateApplied", ""))
+        if dt is None:
+            continue
+        status = app.get("status", "applied")
+        for i, ws in enumerate(week_starts):
+            ws_end = ws + timedelta(weeks=1)
+            if ws <= dt < ws_end:
+                if status in TRACKED_STATUSES:
+                    counts[i][status] += 1
+                break
+
+    result = []
+    for i, ws in enumerate(week_starts):
+        entry: dict = {"week": _week_label(ws)}
+        for s in TRACKED_STATUSES:
+            entry[s] = counts[i][s]
+        result.append(entry)
+
+    return result
+
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+
 @tracer.capture_method
 def check_rate_limit(user_id: str) -> tuple[bool, int]:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -59,7 +248,7 @@ def check_rate_limit(user_id: str) -> tuple[bool, int]:
         remaining = max(0, CHAT_DAILY_LIMIT - count)
         return count <= CHAT_DAILY_LIMIT, remaining
     except Exception:
-        logger.exception("Rate limit check failed — allowing request")
+        logger.exception("Rate limit check failed - allowing request")
         return True, CHAT_DAILY_LIMIT
 
 
@@ -159,6 +348,10 @@ def compute_patterns(apps: list) -> dict:
             "bestCompanySize": {"name": best_size[0], "responseRate": response_rate(best_size[1])} if best_size else None,
         },
         "velocity": {f"week_{i}_ago": weekly_counts.get(i, 0) for i in range(4)},
+        # v2.1 additions
+        "funnel": _compute_funnel(apps),
+        "responseRateTimeSeries": _compute_response_rate_time_series(apps),
+        "statusHistory": _compute_status_history(apps),
     }
 
 

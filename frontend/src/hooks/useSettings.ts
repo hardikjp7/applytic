@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSettings, updateSettings } from '../lib/api'
 import type { UserSettings } from '../types'
 import toast from 'react-hot-toast'
+
+export const SETTINGS_KEY = ['settings'] as const
 
 const DEFAULT_SETTINGS: UserSettings = {
   weeklyGoal: 10,
@@ -10,33 +12,26 @@ const DEFAULT_SETTINGS: UserSettings = {
 }
 
 export function useSettings() {
-  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS)
-  const [loading, setLoading] = useState(true)
+  const qc = useQueryClient()
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true)
-      const data = await getSettings()
-      setSettings(data)
-    } catch {
-      // silently fall back to defaults - settings are non-critical
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const { data: settings = DEFAULT_SETTINGS, isLoading: loading } = useQuery({
+    queryKey: SETTINGS_KEY,
+    queryFn: getSettings,
+  })
 
-  useEffect(() => { load() }, [load])
-
-  const saveGoal = async (weeklyGoal: number) => {
-    try {
-      const updated = await updateSettings({ weeklyGoal })
-      setSettings(updated)
+  const updateMutation = useMutation({
+    mutationFn: updateSettings,
+    onSuccess: (updated) => {
+      qc.setQueryData(SETTINGS_KEY, updated)
       toast.success('Weekly goal updated')
-      return updated
-    } catch {
-      toast.error('Failed to update goal')
-    }
-  }
+    },
+    onError: () => toast.error('Failed to update goal'),
+  })
 
-  return { settings, loading, saveGoal, reload: load }
+  return {
+    settings,
+    loading,
+    saveGoal: (weeklyGoal: number) => updateMutation.mutateAsync({ weeklyGoal }),
+    reload: () => qc.invalidateQueries({ queryKey: SETTINGS_KEY }),
+  }
 }
