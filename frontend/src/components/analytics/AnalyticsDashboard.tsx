@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
+  LineChart, Line, CartesianGrid,
 } from 'recharts'
 import { getInsights } from '../../lib/api'
 import type { Patterns } from '../../types'
@@ -9,7 +10,35 @@ import { TrendingUp, Target, Zap } from 'lucide-react'
 
 const COLORS = ['#7f77dd', '#1d9e75', '#ef9f27', '#e24b4a', '#378add', '#d85a30']
 
+// Status history color per status
+const STATUS_HISTORY_COLORS: Record<string, string> = {
+  applied:   '#378add',
+  screened:  '#7f77dd',
+  interview: '#ef9f27',
+  offer:     '#1d9e75',
+  rejected:  '#e24b4a',
+}
+
 const card = 'bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl'
+
+// ── Custom funnel bar label showing conversion % ───────────────────────────
+
+function FunnelLabel({ x, y, width, height, value }: any) {
+  if (!value || value === 0) return null
+  return (
+    <text
+      x={x + width / 2}
+      y={y + height / 2}
+      fill="white"
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontSize={11}
+      fontWeight={500}
+    >
+      {value}
+    </text>
+  )
+}
 
 export default function AnalyticsDashboard() {
   const [patterns, setPatterns] = useState<Patterns | null>(null)
@@ -35,7 +64,7 @@ export default function AnalyticsDashboard() {
         ))}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {[...Array(4)].map((_, i) => (
+        {[...Array(6)].map((_, i) => (
           <div key={i} className={`${card} p-5 animate-pulse`}>
             <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-36 mb-4" />
             <div className="h-48 bg-gray-50 dark:bg-gray-800 rounded-lg" />
@@ -65,6 +94,23 @@ export default function AnalyticsDashboard() {
   const resumeData = Object.entries(patterns.breakdowns.byResumeVersion).map(([name, d]) => ({ name, responseRate: d.responseRate, total: d.total }))
   const statusData = Object.entries(patterns.summary.byStatus).map(([name, value]) => ({ name, value: value as number }))
   const velocityData = Object.entries(patterns.velocity).map(([key, count]) => ({ name: key.replace('week_', 'W-').replace('_ago', ''), count })).reverse()
+
+  // v2.1: funnel chart data - show count as bar, label shows conversion from prev
+  const funnelData = (patterns.funnel?.stages ?? []).map(s => ({
+    stage: s.stage,
+    count: s.count,
+    label: s.stage === 'Applied' ? `${s.count}` : `${s.conversionFromPrev}%`,
+  }))
+
+  // v2.1: response rate time series - filter out leading empty weeks for cleaner chart
+  const rawTimeSeries = patterns.responseRateTimeSeries ?? []
+  const firstNonEmpty = rawTimeSeries.findIndex(p => p.total > 0)
+  const timeSeriesData = firstNonEmpty >= 0 ? rawTimeSeries.slice(firstNonEmpty) : rawTimeSeries
+
+  // v2.1: status history stacked bar - filter out empty weeks
+  const statusHistoryData = (patterns.statusHistory ?? []).filter(
+    p => p.applied + p.screened + p.interview + p.offer + p.rejected > 0
+  )
 
   const tickStyle = { fontSize: 11, fill: 'currentColor' }
   const tooltipStyle = { fontSize: 12, backgroundColor: 'var(--tooltip-bg, #fff)', border: '1px solid #e5e7eb', borderRadius: 8 }
@@ -123,6 +169,63 @@ export default function AnalyticsDashboard() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* v2.1: Funnel chart */}
+        {funnelData.length > 0 && (
+          <div className={`${card} p-5`}>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Application funnel</p>
+            <p className="text-xs text-gray-400 mb-4">Conversion at each stage from total applied</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={funnelData} barSize={40}>
+                <XAxis dataKey="stage" tick={tickStyle} />
+                <YAxis tick={tickStyle} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(value: number, _name: string, props: any) => [
+                    `${value} apps (${props.payload.label})`,
+                    'Count',
+                  ]}
+                />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]} label={<FunnelLabel />}>
+                  {funnelData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* v2.1: Response rate over time line chart */}
+        {timeSeriesData.length > 0 && (
+          <div className={`${card} p-5`}>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Response rate over time</p>
+            <p className="text-xs text-gray-400 mb-4">Weekly response rate for applications sent each week</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={timeSeriesData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+                <XAxis dataKey="week" tick={tickStyle} />
+                <YAxis tick={tickStyle} unit="%" domain={[0, 100]} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(v: number, _: string, props: any) => [
+                    `${v}% (${props.payload.total} apps)`,
+                    'Response rate',
+                  ]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="responseRate"
+                  stroke="#7f77dd"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: '#7f77dd' }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         {/* Response rate by source */}
         <div className={`${card} p-5`}>
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Response rate by source</p>
@@ -214,6 +317,38 @@ export default function AnalyticsDashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* v2.1: Status history stacked bar */}
+        {statusHistoryData.length > 0 && (
+          <div className={`${card} p-5 lg:col-span-2`}>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Application status history</p>
+            <p className="text-xs text-gray-400 mb-4">Current status of applications grouped by the week they were sent</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={statusHistoryData} barSize={24}>
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+                <XAxis dataKey="week" tick={tickStyle} />
+                <YAxis tick={tickStyle} allowDecimals={false} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                />
+                {(['applied', 'screened', 'interview', 'offer', 'rejected'] as const).map(s => (
+                  <Bar
+                    key={s}
+                    dataKey={s}
+                    stackId="a"
+                    fill={STATUS_HISTORY_COLORS[s]}
+                    name={s.charAt(0).toUpperCase() + s.slice(1)}
+                    radius={s === 'rejected' ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
       </div>
     </div>
   )

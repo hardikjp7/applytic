@@ -35,6 +35,31 @@ export interface InsightBreakdown {
   responseRate: number
 }
 
+// v2.1: funnel stage returned by the insights Lambda
+export interface FunnelStage {
+  stage: string
+  count: number
+  conversionFromPrev: number
+  conversionFromStart: number
+}
+
+// v2.1: one data point in the response-rate time series
+export interface ResponseRatePoint {
+  week: string        // "M/DD" label, e.g. "5/12"
+  responseRate: number
+  total: number
+}
+
+// v2.1: one week of status history (how many apps per status applied that week)
+export interface StatusHistoryPoint {
+  week: string
+  applied: number
+  screened: number
+  interview: number
+  offer: number
+  rejected: number
+}
+
 export interface Patterns {
   summary: {
     total: number
@@ -54,6 +79,10 @@ export interface Patterns {
     bestCompanySize: { name: string; responseRate: number } | null
   }
   velocity: Record<string, number>
+  // v2.1 additions
+  funnel: { stages: FunnelStage[] }
+  responseRateTimeSeries: ResponseRatePoint[]
+  statusHistory: StatusHistoryPoint[]
 }
 
 // v2.0: user settings - weekly goal and streak
