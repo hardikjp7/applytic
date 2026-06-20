@@ -5,6 +5,7 @@ import { STATUS_LABELS, STATUS_COLORS, SOURCE_LABELS } from '../../lib/utils'
 import { formatDistanceToNow, format } from 'date-fns'
 import ConfirmDialog from '../layout/ConfirmDialog'
 import { useNotes } from '../../hooks/useNotes'
+import ResumeVersionSelect from './ResumeVersionSelect'
 
 interface Props {
   app: Application
@@ -125,7 +126,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                 : <p className="text-sm text-gray-800 dark:text-gray-200">{app.dateApplied}</p>}
             </Field>
             <Field label="Resume version" dark>
-              {editing ? <input className={inp} value={form.resumeVersion} onChange={e => set('resumeVersion', e.target.value)} />
+              {editing ? <ResumeVersionSelect className={inp} value={form.resumeVersion} onChange={v => set('resumeVersion', v)} />
                 : <p className="text-sm text-gray-800 dark:text-gray-200">{app.resumeVersion || '-'}</p>}
             </Field>
             <Field label="Company size" dark>
