@@ -76,10 +76,29 @@
     <!-- GitHub Pages SPA routing fix -->
     <script>
       (function() {
+        // Bug fix: 404.html now stores the FULL original path (e.g.
+        // '/applytic/board'), not a base-stripped fragment. Restoring it
+        // verbatim here keeps the address bar correct after a hard refresh
+        // on any route - previously this wrote a base-less path straight to
+        // the URL, which silently dropped '/applytic' and broke routing.
+        //
+        // Note: this is a classic (non-module) script, so import.meta.env is
+        // NOT available here - Vite only substitutes that inside ES modules.
+        // The base path is hardcoded as a literal, matching the same pattern
+        // 404.html already uses, and matching VITE_BASE_PATH=/applytic/ set
+        // for the GitHub Pages build in deploy.yml.
+        //
+        // No-op guard: skip the case where the stored redirect is just the
+        // base root itself ('/applytic' or '/applytic/') - nothing to
+        // restore there. On the CloudFront/AWS build (no 404.html involved,
+        // base '/'), sessionStorage simply won't have this key, so this
+        // entire block is a safe no-op on that deployment.
         var redirect = sessionStorage.getItem('redirect');
         if (redirect) {
           sessionStorage.removeItem('redirect');
-          if (redirect !== '/') {
+          var base = '/applytic';
+          var isRootOnly = redirect === base || redirect === base + '/';
+          if (!isRootOnly) {
             window.history.replaceState(null, null, redirect);
           }
         }
