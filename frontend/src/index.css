@@ -8,6 +8,22 @@
   }
 }
 
+/* Bug fix: Amplify Authenticator login box was sticking to the top of the
+   page instead of being vertically centered. This is a known upstream
+   Amplify UI issue (centering styles got split between [data-amplify-
+   authenticator] and [data-amplify-container] across versions, and neither
+   element fills the viewport by default) - see aws-amplify/amplify-ui#1458
+   and aws-amplify/amplify-js#5775. Forcing the outer wrapper to fill the
+   viewport and center its content fixes it without needing to override
+   Amplify's internal theme/component structure. */
+[data-amplify-authenticator] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+}
+
 /* Markdown styles for chat */
 .markdown h1, .markdown h2, .markdown h3 {
   @apply font-semibold mt-3 mb-1;

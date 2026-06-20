@@ -4,13 +4,23 @@
   <meta charset="UTF-8" />
   <title>Applytic</title>
   <script>
-    // GitHub Pages SPA redirect trick
-    // Stores the path in sessionStorage then redirects to index.html
-    // index.html then reads it and pushes the correct route
-    var path = window.location.pathname;
+    // GitHub Pages SPA redirect trick.
+    // Stores the full path (including the '/applytic' base) in sessionStorage,
+    // then redirects to the app's index.html. index.html reads it back and
+    // restores the EXACT original URL via history.replaceState.
+    //
+    // Bug fix: this used to strip '/applytic' before storing the route, then
+    // redirect to '/applytic/'. index.html's restore script wrote that
+    // stripped, base-less route (e.g. '/board') straight to the address bar
+    // with nothing to re-add the base - so a hard refresh on
+    // hardikjp7.com/applytic/board silently became hardikjp7.com/board, which
+    // didn't match any route under BrowserRouter's basename="/applytic" and
+    // rendered a blank page. Storing the FULL original path here (base
+    // included) and restoring it verbatim in index.html removes the mismatch -
+    // there's now a single source of truth for the base path instead of two
+    // scripts disagreeing about it.
     var base = '/applytic';
-    var route = path.replace(base, '') || '/';
-    sessionStorage.setItem('redirect', route);
+    sessionStorage.setItem('redirect', window.location.pathname + window.location.search + window.location.hash);
     window.location.replace(base + '/');
   </script>
 </head>

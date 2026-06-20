@@ -1,0 +1,882 @@
+openapi: 3.0.3
+
+info:
+  title: Applytic API
+  description: |
+    REST API for Applytic - an AI-powered job application tracker.
+    All routes are protected by a Cognito User Pool JWT authorizer attached at
+    API Gateway. The bearer token is the Cognito ID token, sent as a raw value
+    in the `Authorization` header (no `Bearer ` prefix - API Gateway's Cognito
+    authorizer reads the token directly).
+
+    This spec documents the contract as implemented. It is descriptive only -
+    no runtime request/response validation is wired against it in v2.2.
+    Pydantic models in each Lambda handler remain the source of truth for
+    actual input validation.
+  version: "2.1.0"
+  contact:
+    name: Hardik
+    url: https://github.com/hardikjp7/applytic
+
+servers:
+  - url: https://mbjyu0w1k5.execute-api.us-east-1.amazonaws.com/v1
+    description: Production (AWS)
+
+security:
+  - cognitoAuth: []
+
+tags:
+  - name: Applications
+    description: CRUD and status pipeline for job applications
+  - name: Notes
+    description: Timestamped notes timeline per application
+  - name: Resumes
+    description: Resume version upload and listing (S3-backed)
+  - name: Insights
+    description: Pattern analysis and Bedrock-powered AI coaching chat
+  - name: Settings
+    description: Weekly application goal and streak tracking
+
+paths:
+
+  # ── Applications ──────────────────────────────────────────────────────────
+
+  /applications:
+    get:
+      tags: [Applications]
+      summary: List all applications for the authenticated user
+      description: Queries GSI1 (USER#userId), sorted newest first by createdAt.
+      responses:
+        "200":
+          description: List of applications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applications:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Application"
+                  count:
+                    type: integer
+                    example: 12
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Applications]
+      summary: Create a new application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApplicationRequest"
+      responses:
+        "201":
+          description: Application created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  application:
+                    $ref: "#/components/schemas/Application"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /applications/{appId}:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      tags: [Applications]
+      summary: Get a single application by ID
+      responses:
+        "200":
+          description: Application found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  application:
+                    $ref: "#/components/schemas/Application"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Applications]
+      summary: Update an application's editable fields
+      description: |
+        Partial update - only fields present in the body are changed.
+        Pass `followUpDate: null` explicitly to clear an existing follow-up date.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateApplicationRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Updated
+                  appId:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Applications]
+      summary: Delete an application
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Deleted
+                  appId:
+                    type: string
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /applications/{appId}/status:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    post:
+      tags: [Applications]
+      summary: Transition an application's status
+      description: |
+        Writes a new STATUS_EVENT record in addition to updating the
+        application's current status, preserving full status history.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStatusRequest"
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Status updated
+                  from:
+                    type: string
+                    nullable: true
+                    example: screened
+                  to:
+                    type: string
+                    example: interview
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Notes ─────────────────────────────────────────────────────────────────
+
+  /applications/{appId}/notes:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      tags: [Notes]
+      summary: List all notes for an application
+      description: Sorted oldest first (ScanIndexForward true).
+      responses:
+        "200":
+          description: Notes list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Note"
+                  count:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Notes]
+      summary: Add a note to an application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNoteRequest"
+      responses:
+        "201":
+          description: Note created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  note:
+                    $ref: "#/components/schemas/Note"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /applications/{appId}/notes/{noteId}:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Notes]
+      summary: Delete a specific note
+      description: |
+        Only the user who created the note may delete it, even if they own
+        the parent application.
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Deleted
+                  noteId:
+                    type: string
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Application or note not found, or note belongs to a different user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Resumes ───────────────────────────────────────────────────────────────
+
+  /resumes/upload-url:
+    post:
+      tags: [Resumes]
+      summary: Get a presigned S3 PUT URL for uploading a resume
+      description: |
+        The browser uploads the PDF directly to S3 using the returned URL -
+        the file never passes through Lambda. URL expires in 300 seconds.
+        Object key format: `resumes/{userId}/{versionName}/{filename}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadUrlRequest"
+      responses:
+        "200":
+          description: Presigned URL generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadUrl:
+                    type: string
+                    format: uri
+                  s3Key:
+                    type: string
+                    example: resumes/abc-123/v3-ml-focused/resume.pdf
+                  versionName:
+                    type: string
+                    example: v3-ml-focused
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /resumes/list:
+    get:
+      tags: [Resumes]
+      summary: List all uploaded resume versions for the user
+      description: |
+        Lists S3 objects under `resumes/{userId}/`, grouped by version folder.
+        Used by the frontend's S3-backed resume version dropdown (v2.2).
+      responses:
+        "200":
+          description: Resume list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resumes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ResumeListItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Insights ──────────────────────────────────────────────────────────────
+
+  /insights:
+    get:
+      tags: [Insights]
+      summary: Get computed pattern analysis across all applications
+      description: |
+        Computes response rates by source, company size, resume version, and
+        role level, plus a 4-week velocity snapshot and (v2.1) a conversion
+        funnel, weekly response-rate time series, and weekly status history.
+        Returns `{ patterns: { message: ... } }` instead of the full shape
+        when the user has zero applications.
+      responses:
+        "200":
+          description: Computed patterns
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  patterns:
+                    $ref: "#/components/schemas/Patterns"
+                  applicationCount:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /insights/chat:
+    post:
+      tags: [Insights]
+      summary: Chat with the AI job search coach
+      description: |
+        Requires at least 3 logged applications to provide meaningful context.
+        Rate limited to 20 messages per user per day (DynamoDB counter with
+        TTL, reset at UTC midnight). The pattern summary is computed first and
+        passed to Amazon Bedrock (Nova Lite) as structured context alongside
+        the user's free-text question.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: |
+            Coach reply. If fewer than 3 applications exist, `dataInsufficient`
+            is `true` and no Bedrock call is made.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+                  patterns:
+                    $ref: "#/components/schemas/Patterns"
+                  remainingChats:
+                    type: integer
+                    example: 17
+                  dataInsufficient:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Daily chat limit reached (20/day)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Daily chat limit reached. You can send up to 20 messages per day.
+                  rateLimited:
+                    type: boolean
+                    example: true
+
+  # ── Settings ──────────────────────────────────────────────────────────────
+
+  /users/settings:
+    get:
+      tags: [Settings]
+      summary: Get the user's weekly goal and current streak
+      description: |
+        Streak is recomputed on every GET using proper ISO week boundaries
+        (Mon 00:00 UTC), looking back up to 8 completed weeks. The current
+        incomplete week is excluded from streak calculation.
+      responses:
+        "200":
+          description: Settings and computed streak
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/UserSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [Settings]
+      summary: Update the weekly application goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsRequest"
+      responses:
+        "200":
+          description: Updated settings with recomputed streak
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/UserSettings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+
+  securitySchemes:
+    cognitoAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        Cognito User Pool JWT (ID token). API Gateway's COGNITO_USER_POOLS
+        authorizer validates this directly - it is not a standard OAuth2
+        Bearer scheme, so no "Bearer " prefix is sent.
+
+  parameters:
+    AppId:
+      name: appId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Cognito JWT
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: Request body failed Pydantic validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Validation error - company is required
+
+    Application:
+      type: object
+      properties:
+        appId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        company:
+          type: string
+        role:
+          type: string
+        status:
+          $ref: "#/components/schemas/AppStatus"
+        dateApplied:
+          type: string
+          format: date
+        resumeVersion:
+          type: string
+          example: v3-ml-focused
+          description: |
+            Free-text historically; as of v2.2 the frontend populates this
+            from the S3-backed resume list via GET /resumes/list, but the
+            API itself still accepts any string.
+        source:
+          $ref: "#/components/schemas/Source"
+        companySize:
+          $ref: "#/components/schemas/CompanySize"
+        jobDescUrl:
+          type: string
+        notes:
+          type: string
+          description: Single free-text quick-notes field, distinct from the notes timeline.
+        followUpDate:
+          type: string
+          format: date
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AppStatus:
+      type: string
+      enum: [applied, screened, interview, offer, rejected, withdrawn]
+
+    Source:
+      type: string
+      enum: [linkedin, referral, cold, job-board, unknown]
+
+    CompanySize:
+      type: string
+      enum: [startup, mid, enterprise, ""]
+
+    CreateApplicationRequest:
+      type: object
+      required: [company, role, status]
+      properties:
+        company:
+          type: string
+        role:
+          type: string
+        status:
+          $ref: "#/components/schemas/AppStatus"
+        dateApplied:
+          type: string
+          format: date
+          nullable: true
+          description: Defaults to today (server date) if omitted.
+        resumeVersion:
+          type: string
+          default: default
+        source:
+          $ref: "#/components/schemas/Source"
+        jobDescUrl:
+          type: string
+          default: ""
+        companySize:
+          $ref: "#/components/schemas/CompanySize"
+        notes:
+          type: string
+          default: ""
+        followUpDate:
+          type: string
+          format: date
+          nullable: true
+          description: YYYY-MM-DD. Validated server-side; rejects malformed dates with 400.
+
+    UpdateApplicationRequest:
+      type: object
+      description: All fields optional; only provided keys are written.
+      properties:
+        company:
+          type: string
+        role:
+          type: string
+        jobDescUrl:
+          type: string
+        resumeVersion:
+          type: string
+        source:
+          type: string
+        companySize:
+          type: string
+        notes:
+          type: string
+        dateApplied:
+          type: string
+          format: date
+        followUpDate:
+          type: string
+          format: date
+          nullable: true
+          description: Pass null explicitly to clear an existing follow-up date.
+
+    UpdateStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/AppStatus"
+        notes:
+          type: string
+          default: ""
+          description: Optional note attached to this specific status transition event.
+
+    Note:
+      type: object
+      properties:
+        noteId:
+          type: string
+          format: uuid
+        appId:
+          type: string
+          format: uuid
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateNoteRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          maxLength: 2000
+          description: Trimmed server-side; rejects empty or >2000 char content with 400.
+
+    UploadUrlRequest:
+      type: object
+      required: [filename]
+      properties:
+        filename:
+          type: string
+          example: resume.pdf
+        versionName:
+          type: string
+          default: v1
+          example: v3-ml-focused
+        contentType:
+          type: string
+          default: application/pdf
+
+    ResumeListItem:
+      type: object
+      properties:
+        versionName:
+          type: string
+        filename:
+          type: string
+        uploadedAt:
+          type: string
+          format: date
+        s3Key:
+          type: string
+
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: Trimmed server-side; rejects empty messages with 400.
+
+    InsightBreakdown:
+      type: object
+      properties:
+        total:
+          type: integer
+        responseRate:
+          type: number
+          format: float
+
+    FunnelStage:
+      type: object
+      properties:
+        stage:
+          type: string
+          enum: [Applied, Screened, Interview, Offer]
+        count:
+          type: integer
+        conversionFromPrev:
+          type: number
+          format: float
+        conversionFromStart:
+          type: number
+          format: float
+
+    ResponseRatePoint:
+      type: object
+      properties:
+        week:
+          type: string
+          example: "5/12"
+        responseRate:
+          type: number
+          format: float
+        total:
+          type: integer
+
+    StatusHistoryPoint:
+      type: object
+      properties:
+        week:
+          type: string
+        applied:
+          type: integer
+        screened:
+          type: integer
+        interview:
+          type: integer
+        offer:
+          type: integer
+        rejected:
+          type: integer
+
+    Patterns:
+      type: object
+      description: |
+        Returned shape when the user has at least 1 application. When the
+        user has zero applications, the API instead returns
+        `{ message: "No applications yet. Start logging to see insights." }`
+        with none of the fields below present.
+      properties:
+        summary:
+          type: object
+          properties:
+            total:
+              type: integer
+            byStatus:
+              type: object
+              additionalProperties:
+                type: integer
+            responseRate:
+              type: number
+              format: float
+            offerRate:
+              type: number
+              format: float
+        breakdowns:
+          type: object
+          properties:
+            bySource:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/InsightBreakdown"
+            byCompanySize:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/InsightBreakdown"
+            byResumeVersion:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/InsightBreakdown"
+            byRoleLevel:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/InsightBreakdown"
+        highlights:
+          type: object
+          properties:
+            bestSource:
+              type: object
+              nullable: true
+              properties:
+                name:
+                  type: string
+                responseRate:
+                  type: number
+            bestResumeVersion:
+              type: object
+              nullable: true
+              properties:
+                name:
+                  type: string
+                responseRate:
+                  type: number
+            bestCompanySize:
+              type: object
+              nullable: true
+              properties:
+                name:
+                  type: string
+                responseRate:
+                  type: number
+        velocity:
+          type: object
+          description: "Keys are week_0_ago .. week_3_ago, values are application counts."
+          additionalProperties:
+            type: integer
+        funnel:
+          type: object
+          properties:
+            stages:
+              type: array
+              items:
+                $ref: "#/components/schemas/FunnelStage"
+        responseRateTimeSeries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResponseRatePoint"
+        statusHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatusHistoryPoint"
+
+    UserSettings:
+      type: object
+      properties:
+        weeklyGoal:
+          type: integer
+          minimum: 1
+          maximum: 500
+        streakCount:
+          type: integer
+        streakLastUpdated:
+          type: string
+          format: date
+          nullable: true
+
+    UpdateSettingsRequest:
+      type: object
+      required: [weeklyGoal]
+      properties:
+        weeklyGoal:
+          type: integer
+          minimum: 1
+          maximum: 500

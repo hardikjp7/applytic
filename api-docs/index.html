@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Applytic API Docs</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css" />
+  <style>
+    body { margin: 0; background: #fafafa; }
+    .topbar { display: none; }
+    #applytic-docs-header {
+      background: #0f0e1a;
+      color: #fff;
+      padding: 14px 24px;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #applytic-docs-header .logo {
+      width: 24px; height: 24px; border-radius: 6px;
+      background: #534ab7;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px;
+    }
+    #applytic-docs-header span.title { font-weight: 600; font-size: 14px; }
+    #applytic-docs-header span.sub { font-size: 12px; color: #9d97e8; margin-left: 4px; }
+  </style>
+</head>
+<body>
+  <div id="applytic-docs-header">
+    <div class="logo">A</div>
+    <span class="title">applytic</span>
+    <span class="sub">API Reference - v2.1</span>
+  </div>
+  <div id="swagger-ui"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js" crossorigin></script>
+  <script>
+    window.onload = function () {
+      window.ui = SwaggerUIBundle({
+        url: "./openapi.yml",
+        dom_id: "#swagger-ui",
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+        layout: "BaseLayout",
+        deepLinking: true,
+        displayRequestDuration: true,
+        tryItOutEnabled: false,
+        docExpansion: "list",
+      });
+    };
+  </script>
+</body>
+</html>

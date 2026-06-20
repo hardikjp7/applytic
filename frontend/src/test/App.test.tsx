@@ -3,6 +3,8 @@
  * Updated to wrap renders in QueryClientProvider for React Query compatibility.
  * Part 2: added tests for keyboard shortcuts (N / Escape / ?) and
  * per-column "Show more" pagination.
+ * v2.2 Session 0: AddApplicationModal now uses ResumeVersionSelect (S3-backed,
+ * React Query), so its tests need QueryClientProvider + a resolved listResumes mock.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -61,6 +63,13 @@ const renderWithProviders = (ui: React.ReactElement) => {
   )
 }
 
+// v2.2 Session 0: AddApplicationModal isn't wrapped in MemoryRouter (it doesn't
+// use routing), but it now needs QueryClientProvider for ResumeVersionSelect.
+const renderModalWithQueryClient = (ui: React.ReactElement) => {
+  const client = createTestQueryClient()
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
+
 // Helper to build a minimal valid Application for mock data
 function makeApp(overrides: Partial<Application>): Application {
   return {
@@ -82,47 +91,56 @@ function makeApp(overrides: Partial<Application>): Application {
   }
 }
 
+const SAMPLE_RESUMES = [
+  { versionName: 'v1-generic', filename: 'resume-v1.pdf', uploadedAt: '2026-01-01' },
+  { versionName: 'v3-ml-focused', filename: 'resume-v3.pdf', uploadedAt: '2026-02-01' },
+]
+
 // ── AddApplicationModal ───────────────────────────────────────────────────────
 
 describe('AddApplicationModal', () => {
   const mockOnClose = vi.fn()
   const mockOnSave = vi.fn()
 
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // v2.2 Session 0: ResumeVersionSelect fetches resumes on mount via useResumes
+    vi.mocked(api.listResumes).mockResolvedValue(SAMPLE_RESUMES)
+  })
 
   it('renders company and role inputs', () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     expect(screen.getByPlaceholderText('Anthropic')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('ML Engineer')).toBeInTheDocument()
   })
 
   it('renders submit button', () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     expect(screen.getByRole('button', { name: /add application/i })).toBeInTheDocument()
   })
 
   it('calls onClose when Cancel is clicked', async () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
     expect(mockOnClose).toHaveBeenCalledOnce()
   })
 
   it('does not call onSave when company is empty', async () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Software Engineer')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave).not.toHaveBeenCalled()
   })
 
   it('does not call onSave when role is empty', async () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave).not.toHaveBeenCalled()
   })
 
   it('calls onSave and onClose with correct data when form is valid', async () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
     await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Backend Engineer')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
@@ -135,7 +153,7 @@ describe('AddApplicationModal', () => {
   })
 
   it('defaults source to linkedin', async () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
     await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
@@ -143,8 +161,36 @@ describe('AddApplicationModal', () => {
   })
 
   it('renders follow-up date field', () => {
-    render(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
     expect(screen.getByText(/follow-up date/i)).toBeInTheDocument()
+  })
+
+  // v2.2 Session 0: resume version dropdown tests
+  it('defaults resume version to empty (no free-text default)', async () => {
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.click(screen.getByRole('button', { name: /add application/i }))
+    expect(mockOnSave.mock.calls[0][0].resumeVersion).toBe('')
+  })
+
+  it('populates resume version options from listResumes', async () => {
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'v1-generic' })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'v3-ml-focused' })).toBeInTheDocument()
+    })
+  })
+
+  it('selecting a resume version includes it in saved data', async () => {
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await waitFor(() => screen.getByRole('option', { name: 'v3-ml-focused' }))
+    const resumeSelect = screen.getByRole('option', { name: 'v3-ml-focused' }).closest('select')!
+    await userEvent.selectOptions(resumeSelect, 'v3-ml-focused')
+    await userEvent.click(screen.getByRole('button', { name: /add application/i }))
+    expect(mockOnSave.mock.calls[0][0].resumeVersion).toBe('v3-ml-focused')
   })
 })
 
@@ -187,7 +233,10 @@ describe('Dashboard', () => {
 // ── KanbanBoard ───────────────────────────────────────────────────────────────
 
 describe('KanbanBoard', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.listResumes).mockResolvedValue(SAMPLE_RESUMES)
+  })
 
   it('shows empty state when no applications', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([])
@@ -229,7 +278,10 @@ describe('KanbanBoard', () => {
 // ── KanbanBoard - keyboard shortcuts (v2.1 Part 2) ──────────────────────────────
 
 describe('KanbanBoard keyboard shortcuts', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.listResumes).mockResolvedValue(SAMPLE_RESUMES)
+  })
 
   it('pressing "n" opens the Add application modal', async () => {
     vi.mocked(api.getApplications).mockResolvedValue([])
@@ -293,7 +345,10 @@ describe('KanbanBoard keyboard shortcuts', () => {
 // ── KanbanBoard - column pagination (v2.1 Part 2) ───────────────────────────────
 
 describe('KanbanBoard column pagination', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.listResumes).mockResolvedValue(SAMPLE_RESUMES)
+  })
 
   it('shows a "Show more" button when a column has more than 20 cards, and reveals the rest on click', async () => {
     const apps = Array.from({ length: 25 }, (_, i) =>

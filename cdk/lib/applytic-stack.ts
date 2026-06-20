@@ -58,11 +58,33 @@ export class ApplyticStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
+    // ─── v2.2: cache policy for API docs - short TTL, no version-hashed
+    // filenames like the SPA's JS/CSS bundles, so we don't want CACHING_OPTIMIZED's
+    // long defaults. CloudFront invalidation on deploy still covers immediate updates.
+    const apiDocsCachePolicy = new cloudfront.CachePolicy(this, 'ApiDocsCachePolicy', {
+      cachePolicyName: 'applytic-api-docs',
+      defaultTtl: cdk.Duration.minutes(5),
+      minTtl: cdk.Duration.seconds(0),
+      maxTtl: cdk.Duration.hours(1),
+    });
+
+    const frontendOrigin = origins.S3BucketOrigin.withOriginAccessControl(frontendBucket);
+
     const distribution = new cloudfront.Distribution(this, 'FrontendCDN', {
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
+        origin: frontendOrigin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+      },
+      // ─── v2.2: /api/docs/* - static Swagger UI + openapi.yml, same bucket,
+      // different prefix and cache policy. Additive only - does not touch the
+      // SPA's defaultBehavior or its 404→index.html rewrite below.
+      additionalBehaviors: {
+        'api/docs/*': {
+          origin: frontendOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          cachePolicy: apiDocsCachePolicy,
+        },
       },
       defaultRootObject: 'index.html',
       errorResponses: [{ httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' }],
@@ -463,5 +485,7 @@ export class ApplyticStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ResumeBucketName', { value: resumeBucket.bucketName });
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: alarmTopic.topicArn });
     new cdk.CfnOutput(this, 'SharedLayerArn', { value: sharedLayer.layerVersionArn });
+    // ─── v2.2: API docs URL ───────────────────────────────────────────────────
+    new cdk.CfnOutput(this, 'ApiDocsUrl', { value: `${cloudfrontDomain}/api/docs/`, description: 'Swagger UI - API reference' });
   }
 }

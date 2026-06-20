@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import type { Application } from '../../types'
+import ResumeVersionSelect from './ResumeVersionSelect'
 
 interface Props {
   onClose: () => void
@@ -10,7 +11,7 @@ interface Props {
 const defaultForm = {
   company: '', role: '', status: 'applied' as const,
   dateApplied: new Date().toISOString().split('T')[0],
-  source: 'linkedin' as const, resumeVersion: 'v1',
+  source: 'linkedin' as const, resumeVersion: '',
   companySize: '' as const, jobDescUrl: '', notes: '',
   followUpDate: null as string | null,
 }
@@ -77,7 +78,7 @@ export default function AddApplicationModal({ onClose, onSave }: Props) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Resume version</label>
-              <input className={inp} value={form.resumeVersion} onChange={e => set('resumeVersion', e.target.value)} placeholder="v1-ml-focused" />
+              <ResumeVersionSelect className={inp} value={form.resumeVersion} onChange={v => set('resumeVersion', v)} />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
