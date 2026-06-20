@@ -68,11 +68,39 @@ jobs:
       - name: Run frontend tests
         run: cd frontend && npm run test
 
+  # ── Job 2b: v2.2 - validate OpenAPI spec ──────────────────────────────────────
+  validate-openapi:
+    name: Validate OpenAPI spec
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validator
+        run: pip install openapi-spec-validator pyyaml
+
+      - name: Validate api/openapi.yml
+        run: |
+          python -c "
+          from openapi_spec_validator import validate_spec
+          import yaml
+          with open('api/openapi.yml') as f:
+              spec = yaml.safe_load(f)
+          validate_spec(spec)
+          print('OpenAPI spec is valid')
+          "
+
   # ── Job 3: Deploy backend (CDK) ───────────────────────────────────────────────
   deploy-backend:
     name: Deploy CDK stack
     runs-on: ubuntu-latest
-    needs: [test, test-frontend]
+    needs: [test, test-frontend, validate-openapi]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     permissions:
@@ -119,7 +147,7 @@ jobs:
   deploy-frontend-aws:
     name: Deploy frontend to AWS
     runs-on: ubuntu-latest
-    needs: [test, test-frontend]
+    needs: [test, test-frontend, validate-openapi]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     permissions:
@@ -158,6 +186,12 @@ jobs:
       - name: Deploy to S3
         run: aws s3 sync frontend/dist/ s3://${{ env.FRONTEND_BUCKET }} --delete
 
+      # ── v2.2: sync static API docs (Swagger UI + spec) under api/docs/ prefix.
+      # Separate sync, not part of --delete above, so it doesn't wipe the SPA
+      # build and isn't wiped by it - distinct prefixes, same bucket.
+      - name: Deploy API docs to S3
+        run: aws s3 sync api-docs/ s3://${{ env.FRONTEND_BUCKET }}/api/docs/ --delete
+
       - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
@@ -168,7 +202,7 @@ jobs:
   deploy-frontend-pages:
     name: Deploy frontend to GitHub Pages
     runs-on: ubuntu-latest
-    needs: [test, test-frontend]
+    needs: [test, test-frontend, validate-openapi]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: github-pages
