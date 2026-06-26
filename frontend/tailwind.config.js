@@ -30,7 +30,12 @@ export default {
         },
       },
       fontFamily: {
+        // App UI font - unchanged
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        // v2.3: landing page display font (headings, logo wordmark)
+        syne: ['Syne', 'system-ui', 'sans-serif'],
+        // v2.3: landing page body font
+        dm: ['DM Sans', 'system-ui', 'sans-serif'],
       },
     },
   },

@@ -14,6 +14,7 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'; // v2.3
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -58,9 +59,7 @@ export class ApplyticStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
-    // ─── v2.2: cache policy for API docs - short TTL, no version-hashed
-    // filenames like the SPA's JS/CSS bundles, so we don't want CACHING_OPTIMIZED's
-    // long defaults. CloudFront invalidation on deploy still covers immediate updates.
+    // ─── v2.2: cache policy for API docs ──────────────────────────────────────
     const apiDocsCachePolicy = new cloudfront.CachePolicy(this, 'ApiDocsCachePolicy', {
       cachePolicyName: 'applytic-api-docs',
       defaultTtl: cdk.Duration.minutes(5),
@@ -76,9 +75,6 @@ export class ApplyticStack extends cdk.Stack {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
-      // ─── v2.2: /api/docs/* - static Swagger UI + openapi.yml, same bucket,
-      // different prefix and cache policy. Additive only - does not touch the
-      // SPA's defaultBehavior or its 404→index.html rewrite below.
       additionalBehaviors: {
         'api/docs/*': {
           origin: frontendOrigin,
@@ -105,19 +101,83 @@ export class ApplyticStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    // ─── v2.3: Google OAuth credentials from Secrets Manager ──────────────────
+    // Secret was pre-created via:
+    //   aws secretsmanager create-secret --name applytic/google-oauth \
+    //     --secret-string '{"client_id":"...","client_secret":"..."}'
+    // Never commit credentials - always read from Secrets Manager at deploy time.
+    const googleOAuthSecret = secretsmanager.Secret.fromSecretNameV2(
+      this, 'GoogleOAuthSecret', 'applytic/google-oauth'
+    );
+
+    // ─── v2.3: Google Identity Provider ───────────────────────────────────────
+    // client_id is not truly secret (appears in OAuth redirect URLs) so
+    // unsafeUnwrap() is the accepted CDK pattern here.
+    // client_secret is passed as SecretValue and never appears in plain text.
+    const googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, 'GoogleProvider', {
+      userPool,
+      clientId: googleOAuthSecret.secretValueFromJson('client_id').unsafeUnwrap(),
+      clientSecretValue: googleOAuthSecret.secretValueFromJson('client_secret'),
+      scopes: ['email', 'profile', 'openid'],
+      attributeMapping: {
+        email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+        givenName: cognito.ProviderAttribute.GOOGLE_GIVEN_NAME,
+        familyName: cognito.ProviderAttribute.GOOGLE_FAMILY_NAME,
+      },
+    });
+
+    // ─── v2.3: Hosted UI domain ────────────────────────────────────────────────
+    // Full domain: applytic-auth.auth.us-east-1.amazoncognito.com
+    // Required for OAuth redirect flow (Google sign-in).
+    const hostedUiDomain = userPool.addDomain('HostedUiDomain', {
+      cognitoDomain: {
+        domainPrefix: 'applytic-auth',
+      },
+    });
+
+    // ─── v2.3: UserPoolClient - updated from v2.2 ─────────────────────────────
+    // Changes vs previous:
+    //   - implicitCodeGrant -> authorizationCodeGrant (more secure, required for PKCE)
+    //   - Added PROFILE scope (needed for Google name attributes)
+    //   - Added /auth/callback URLs for the new OAuth redirect route
+    //   - Added logoutUrls
+    //   - Added GOOGLE to supportedIdentityProviders
+    // The old root callback URLs are kept during transition and will be removed
+    // in Session 2 once the frontend no longer needs them.
     const userPoolClient = userPool.addClient('WebClient', {
       authFlows: { userPassword: true, userSrp: true },
       oAuth: {
-        flows: { implicitCodeGrant: true },
-        scopes: [cognito.OAuthScope.EMAIL, cognito.OAuthScope.OPENID],
+        flows: { authorizationCodeGrant: true },
+        scopes: [
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.PROFILE,
+        ],
         callbackUrls: [
+          // v2.3: primary OAuth redirect target for all deployments
+          `${cloudfrontDomain}/auth/callback`,
+          'https://hardikjp7.github.io/applytic/auth/callback',
+          `${customDomainApplytic}/auth/callback`,
+          // kept for backward compat during Session 2 transition
           cloudfrontDomain,
           'https://hardikjp7.github.io/applytic',
           customDomain,
           customDomainApplytic,
         ],
+        logoutUrls: [
+          `${cloudfrontDomain}/`,
+          'https://hardikjp7.github.io/applytic/',
+          `${customDomainApplytic}/`,
+        ],
       },
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+        cognito.UserPoolClientIdentityProvider.GOOGLE,
+      ],
     });
+
+    // Google provider must exist before the client references it
+    userPoolClient.node.addDependency(googleProvider);
 
     // ─── v1.2: Shared Lambda Layer ────────────────────────────────────────────
     const sharedLayer = new lambda.LayerVersion(this, 'SharedLayer', {
@@ -220,7 +280,15 @@ export class ApplyticStack extends cdk.Stack {
       resources: ['*'],
     }));
 
+    // Post Confirmation: fires when a native email/password user confirms their account
     userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, cognitoVerifyLambda);
+
+    // v2.3: Post Authentication: fires on every successful sign-in, native or federated.
+    // This ensures Google sign-in users also get their email SES-verified so they
+    // receive the Monday digest. The Lambda's existing idempotency check
+    // (VerificationStatus == 'Success' -> skip) makes repeated calls safe - it's
+    // a no-op after the first successful SES verification. No Lambda code changes needed.
+    userPool.addTrigger(cognito.UserPoolOperation.POST_AUTHENTICATION, cognitoVerifyLambda);
 
     // ─── v2.0: Lambda: follow-up reminders ───────────────────────────────────
     const followUpLambda = new lambda.Function(this, 'FollowUpLambda', {
@@ -272,8 +340,6 @@ export class ApplyticStack extends cdk.Stack {
       environment: commonEnv,
     });
 
-    // Notes Lambda needs read+write: reads APPLICATION to verify ownership,
-    // writes/deletes NOTE entities
     table.grantReadWriteData(notesLambda);
 
     // ─── v1.2 + v2.0: X-Ray IAM for all Lambdas ──────────────────────────────
@@ -485,7 +551,16 @@ export class ApplyticStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ResumeBucketName', { value: resumeBucket.bucketName });
     new cdk.CfnOutput(this, 'AlarmTopicArn', { value: alarmTopic.topicArn });
     new cdk.CfnOutput(this, 'SharedLayerArn', { value: sharedLayer.layerVersionArn });
-    // ─── v2.2: API docs URL ───────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'ApiDocsUrl', { value: `${cloudfrontDomain}/api/docs/`, description: 'Swagger UI - API reference' });
+
+    // ─── v2.3: new outputs ────────────────────────────────────────────────────
+    new cdk.CfnOutput(this, 'HostedUiBaseUrl', {
+      value: `https://applytic-auth.auth.${this.region}.amazoncognito.com`,
+      description: 'v2.3 - Cognito Hosted UI base URL (used in Amplify oauth config)',
+    });
+    new cdk.CfnOutput(this, 'GoogleIdpRedirectUri', {
+      value: `https://applytic-auth.auth.${this.region}.amazoncognito.com/oauth2/idpresponse`,
+      description: 'v2.3 - Add this as an Authorized Redirect URI in Google Cloud Console',
+    });
   }
 }
