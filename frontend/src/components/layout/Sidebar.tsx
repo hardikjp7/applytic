@@ -4,8 +4,9 @@ import { signOut, getCurrentUser } from 'aws-amplify/auth'
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 
+// v2.3: Dashboard route moved from '/' to '/dashboard'
 const nav = [
-  { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/board',     icon: Kanban,          label: 'Board' },
   { to: '/analytics', icon: BarChart2,        label: 'Analytics' },
   { to: '/coach',     icon: MessageSquare,    label: 'AI Coach' },
@@ -42,7 +43,6 @@ export default function Sidebar({ theme, toggleTheme, sidebarOpen, setSidebarOpe
       transition-transform duration-200
       ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
     `}>
-      {/* Header */}
       <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
         <span className="text-lg font-semibold text-brand-800 dark:text-brand-400 tracking-tight">applytic</span>
         <button
@@ -53,14 +53,11 @@ export default function Sidebar({ theme, toggleTheme, sidebarOpen, setSidebarOpe
         </button>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {nav.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
-            end={to === '/'}
-            onClick={() => setSidebarOpen(false)}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                 isActive
@@ -68,6 +65,7 @@ export default function Sidebar({ theme, toggleTheme, sidebarOpen, setSidebarOpe
                   : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-100'
               }`
             }
+            onClick={() => setSidebarOpen(false)}
           >
             <Icon size={16} />
             {label}
@@ -75,9 +73,7 @@ export default function Sidebar({ theme, toggleTheme, sidebarOpen, setSidebarOpe
         ))}
       </nav>
 
-      {/* Footer */}
       <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800 space-y-1">
-        {/* Dark mode toggle */}
         <button
           onClick={toggleTheme}
           className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
@@ -86,7 +82,6 @@ export default function Sidebar({ theme, toggleTheme, sidebarOpen, setSidebarOpe
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
         </button>
 
-        {/* User info */}
         {userEmail && (
           <div className="flex items-center gap-2.5 px-3 py-2">
             <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-800 flex items-center justify-center text-xs font-medium text-brand-700 dark:text-brand-300 shrink-0">
@@ -96,7 +91,6 @@ export default function Sidebar({ theme, toggleTheme, sidebarOpen, setSidebarOpe
           </div>
         )}
 
-        {/* Sign out */}
         <button
           onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-red-500 dark:hover:text-red-400 transition-colors"
