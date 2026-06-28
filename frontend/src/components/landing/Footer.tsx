@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 const FOOTER_LINKS = {
   Product: [
     { label: 'Features',      href: '#features',   anchor: true },
@@ -11,10 +13,10 @@ const FOOTER_LINKS = {
     { label: 'FAQ',               href: '#faq', anchor: true },
   ],
   Company: [
-    { label: 'About',           href: '#about', anchor: true },
-    { label: 'Privacy Policy',  href: '/privacy', internal: true },
+    { label: 'About',            href: '#about', anchor: true },
+    { label: 'Privacy Policy',   href: '/privacy', internal: true },
     { label: 'Terms of Service', href: '/terms', internal: true },
-    { label: 'Contact',         href: 'https://hardikjp7.com/#contact', external: true },
+    { label: 'Contact',          href: 'https://hardikjp7.com/#contact', external: true },
   ],
 }
 
@@ -46,8 +48,9 @@ function FooterLink({ item }: { item: LinkItem }) {
       </a>
     )
   }
-  // internal route - plain anchor, React Router handles it
-  return <a href={item.href} className={cls}>{item.label}</a>
+  // internal route - use React Router Link so basename is respected.
+  // Plain <a href="/privacy"> resolves from domain root, ignoring /applytic basename.
+  return <Link to={item.href} className={cls}>{item.label}</Link>
 }
 
 export default function Footer() {

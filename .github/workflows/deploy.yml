@@ -233,18 +233,6 @@ jobs:
           VITE_AWS_REGION: us-east-1
           VITE_BASE_PATH: /applytic/
 
-      # fix/v23-public-routes: generate stub index.html files for every public
-      # route so GitHub Pages serves them directly without needing the 404.html
-      # sessionStorage redirect trick. When index.html is served directly the
-      # sessionStorage restore block is a no-op (nothing stored), so React Router
-      # picks up the correct URL and renders the right page cleanly.
-      - name: Create stub pages for public routes (GitHub Pages SPA)
-        run: |
-          for route in privacy terms login signup; do
-            mkdir -p frontend/dist/$route
-            cp frontend/dist/index.html frontend/dist/$route/index.html
-          done
-
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
