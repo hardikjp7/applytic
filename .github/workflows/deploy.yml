@@ -41,7 +41,7 @@ jobs:
       - name: Install test dependencies
         run: |
           pip install pytest boto3 pydantic aws-lambda-powertools pytest-cov
-          pip install "moto[dynamodb,s3,ses,cognitoidp]" 
+          pip install "moto[dynamodb,s3,ses,cognitoidp]"
 
       - name: Run tests with coverage
         run: python -m pytest tests/ -v --tb=short --cov=lambdas --cov-report=term-missing --cov-fail-under=70
@@ -186,9 +186,6 @@ jobs:
       - name: Deploy to S3
         run: aws s3 sync frontend/dist/ s3://${{ env.FRONTEND_BUCKET }} --delete
 
-      # ── v2.2: sync static API docs (Swagger UI + spec) under api/docs/ prefix.
-      # Separate sync, not part of --delete above, so it doesn't wipe the SPA
-      # build and isn't wiped by it - distinct prefixes, same bucket.
       - name: Deploy API docs to S3
         run: aws s3 sync api-docs/ s3://${{ env.FRONTEND_BUCKET }}/api/docs/ --delete
 
@@ -235,6 +232,18 @@ jobs:
           VITE_USER_POOL_CLIENT_ID: ${{ secrets.VITE_USER_POOL_CLIENT_ID }}
           VITE_AWS_REGION: us-east-1
           VITE_BASE_PATH: /applytic/
+
+      # fix/v23-public-routes: generate stub index.html files for every public
+      # route so GitHub Pages serves them directly without needing the 404.html
+      # sessionStorage redirect trick. When index.html is served directly the
+      # sessionStorage restore block is a no-op (nothing stored), so React Router
+      # picks up the correct URL and renders the right page cleanly.
+      - name: Create stub pages for public routes (GitHub Pages SPA)
+        run: |
+          for route in privacy terms login signup; do
+            mkdir -p frontend/dist/$route
+            cp frontend/dist/index.html frontend/dist/$route/index.html
+          done
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
