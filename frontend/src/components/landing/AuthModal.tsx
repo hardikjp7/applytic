@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import {
   signIn,
   signUp,
@@ -394,11 +394,14 @@ export default function AuthModal({ initialView = 'login', isModal = false }: Pr
         </button>
       </form>
 
+      {/* Fix: was <a href="/terms"> and <a href="/privacy"> - broken on GitHub Pages
+          because bare href ignores BrowserRouter basename (/applytic/).
+          Link to="/terms" respects basename automatically. */}
       <p className="mt-4 text-xs text-gray-600 text-center">
         By signing up you agree to our{' '}
-        <a href="/terms" className="text-gray-500 hover:text-indigo-400 transition-colors">Terms</a>
+        <Link to="/terms" className="text-gray-500 hover:text-indigo-400 transition-colors">Terms</Link>
         {' '}and{' '}
-        <a href="/privacy" className="text-gray-500 hover:text-indigo-400 transition-colors">Privacy Policy</a>.
+        <Link to="/privacy" className="text-gray-500 hover:text-indigo-400 transition-colors">Privacy Policy</Link>.
       </p>
     </>
   )
