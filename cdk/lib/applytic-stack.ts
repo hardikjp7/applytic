@@ -247,7 +247,7 @@ export class ApplyticStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/digest')),
       handler: 'handler.lambda_handler',
       description: 'Weekly email digest via SES',
-      environment: { ...commonEnv, SES_FROM_EMAIL: 'hardikjparmar7@gmail.com' },
+      environment: { ...commonEnv, SES_FROM_EMAIL: 'hi@hardikjp7.com' },
     });
 
     table.grantReadData(digestLambda);
@@ -299,7 +299,7 @@ export class ApplyticStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/followup')),
       handler: 'handler.lambda_handler',
       description: 'v2.0 - Daily follow-up reminder emails for overdue applications',
-      environment: { ...commonEnv, SES_FROM_EMAIL: 'hardikjparmar7@gmail.com' },
+      environment: { ...commonEnv, SES_FROM_EMAIL: 'hi@hardikjp7.com' },
     });
 
     table.grantReadData(followUpLambda);
@@ -342,6 +342,25 @@ export class ApplyticStack extends cdk.Stack {
 
     table.grantReadWriteData(notesLambda);
 
+    // ─── v3.0: Lambda: interview prep ────────────────────────────────────────
+    const interviewPrepLambda = new lambda.Function(this, 'InterviewPrepLambda', {
+      functionName: 'applytic-interview-prep',
+      runtime, architecture, memorySize: 512,
+      timeout: cdk.Duration.seconds(60),
+      logRetention, tracing: tracingConfig, layers: [sharedLayer],
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/interview_prep')),
+      handler: 'handler.lambda_handler',
+      description: 'v3.0 - Interview prep question generation via Bedrock',
+      environment: commonEnv,
+    });
+
+    table.grantReadWriteData(interviewPrepLambda);
+    interviewPrepLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+      resources: ['*'],
+    }));
+
     // ─── v1.2 + v2.0: X-Ray IAM for all Lambdas ──────────────────────────────
     const xrayPolicy = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -352,6 +371,7 @@ export class ApplyticStack extends cdk.Stack {
     [
       applicationsLambda, insightsLambda, digestLambda,
       cognitoVerifyLambda, followUpLambda, settingsLambda, notesLambda,
+      interviewPrepLambda,
     ].forEach(fn => fn.addToRolePolicy(xrayPolicy));
 
     // ─── EventBridge: Monday 8am UTC - weekly digest ──────────────────────────
@@ -408,6 +428,12 @@ export class ApplyticStack extends cdk.Stack {
       threshold: 1, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
+    new cloudwatch.Alarm(this, 'InterviewPrepLambdaErrorAlarm', {
+      alarmName: 'applytic-interview-prep-errors',
+      metric: interviewPrepLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 1, ...alarmDefaults,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
     new cloudwatch.Alarm(this, 'ApplicationsLambdaP99Alarm', {
       alarmName: 'applytic-applications-p99-latency',
       metric: applicationsLambda.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
@@ -438,6 +464,7 @@ export class ApplyticStack extends cdk.Stack {
               followUpLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               settingsLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
               notesLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
+              interviewPrepLambda.metricInvocations({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -450,6 +477,7 @@ export class ApplyticStack extends cdk.Stack {
               followUpLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               settingsLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
               notesLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
+              interviewPrepLambda.metricErrors({ period: cdk.Duration.minutes(5) }),
             ],
             width: 12,
           }),
@@ -542,6 +570,12 @@ export class ApplyticStack extends cdk.Stack {
 
     const noteResource = notesResource.addResource('{noteId}');
     noteResource.addMethod('DELETE', new apigateway.LambdaIntegration(notesLambda), authOptions);
+
+    // ─── v3.0: /applications/{appId}/interview-prep routes ───────────────────
+    const interviewPrepResource = appResource.addResource('interview-prep');
+    interviewPrepResource.addMethod('GET', new apigateway.LambdaIntegration(interviewPrepLambda), authOptions);
+    interviewPrepResource.addResource('generate').addMethod('POST', new apigateway.LambdaIntegration(interviewPrepLambda), authOptions);
+    interviewPrepResource.addResource('{questionId}').addMethod('PUT', new apigateway.LambdaIntegration(interviewPrepLambda), authOptions);
 
     // ─── Outputs ──────────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url, description: 'REST API base URL' });
