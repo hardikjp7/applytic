@@ -563,6 +563,13 @@ export class ApplyticStack extends cdk.Stack {
     settingsResource.addMethod('GET', new apigateway.LambdaIntegration(settingsLambda), authOptions);
     settingsResource.addMethod('PUT', new apigateway.LambdaIntegration(settingsLambda), authOptions);
 
+    // ─── v3.0: /users/alerts routes - reuses settingsLambda, no new Lambda ───
+    const alertsResource = usersResource.addResource('alerts');
+    alertsResource.addMethod('GET', new apigateway.LambdaIntegration(settingsLambda), authOptions);
+
+    const alertResource = alertsResource.addResource('{alertId}');
+    alertResource.addResource('dismiss').addMethod('PUT', new apigateway.LambdaIntegration(settingsLambda), authOptions);
+
     // ─── v2.0: /applications/{appId}/notes routes ─────────────────────────────
     const notesResource = appResource.addResource('notes');
     notesResource.addMethod('GET', new apigateway.LambdaIntegration(notesLambda), authOptions);

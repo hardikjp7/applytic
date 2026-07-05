@@ -1,6 +1,7 @@
 """
-Unit tests for Settings Lambda - v2.0
+Unit tests for Settings Lambda - v3.0
 Tests: get_settings, compute_streak, upsert_settings, lambda_handler
+v3.0 additions: list_alerts, dismiss_alert, GET/PUT alerts routes
 Run: python -m pytest tests/test_settings.py -v
 """
 import sys
@@ -104,17 +105,21 @@ compute_streak = _mod.compute_streak
 upsert_settings = _mod.upsert_settings
 lambda_handler = _mod.lambda_handler
 DEFAULT_WEEKLY_GOAL = _mod.DEFAULT_WEEKLY_GOAL
+list_alerts = _mod.list_alerts
+dismiss_alert = _mod.dismiss_alert
+_clean_alert = _mod._clean_alert
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 USER_ID = "test-user-123"
+ALERT_ID = "alert-uuid-1"
 
 
-def make_event(method="GET", path="/users/settings", body=None):
+def make_event(method="GET", path="/users/settings", body=None, path_params=None):
     return {
         "httpMethod": method,
         "path": path,
-        "pathParameters": {},
+        "pathParameters": path_params or {},
         "body": json.dumps(body) if body else None,
         "requestContext": {
             "authorizer": {
@@ -133,6 +138,21 @@ def make_app(app_id, date_applied):
         "status": "applied",
         "dateApplied": date_applied,
         "entityType": "APPLICATION",
+    }
+
+
+def make_alert_item(alert_id=ALERT_ID, user_id=USER_ID, message="Test alert", dismissed=False):
+    ts = "2024-01-15T10:00:00+00:00"
+    return {
+        "PK": f"USER#{user_id}",
+        "SK": f"ALERT#{ts}#{alert_id}",
+        "alertId": alert_id,
+        "userId": user_id,
+        "message": message,
+        "dismissed": dismissed,
+        "createdAt": ts,
+        "ttl": 9999999999,
+        "entityType": "ALERT",
     }
 
 
@@ -317,6 +337,102 @@ class TestUpsertSettings:
                 upsert_settings(USER_ID, 10, 0, "2024-01-14")
 
 
+# ── Tests: list_alerts (v3.0) ──────────────────────────────────────────────────
+
+class TestListAlerts:
+
+    def test_returns_undismissed_alerts_by_default(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {
+            "Items": [
+                make_alert_item("a1", dismissed=False),
+                make_alert_item("a2", dismissed=True),
+            ]
+        }
+        with patch("settings_handler.table", mock_table):
+            alerts = list_alerts(USER_ID)
+        assert len(alerts) == 1
+        assert alerts[0]["alertId"] == "a1"
+
+    def test_includes_dismissed_when_requested(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {
+            "Items": [
+                make_alert_item("a1", dismissed=False),
+                make_alert_item("a2", dismissed=True),
+            ]
+        }
+        with patch("settings_handler.table", mock_table):
+            alerts = list_alerts(USER_ID, include_dismissed=True)
+        assert len(alerts) == 2
+
+    def test_returns_empty_list_when_no_alerts(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": []}
+        with patch("settings_handler.table", mock_table):
+            alerts = list_alerts(USER_ID)
+        assert alerts == []
+
+    def test_queries_correct_pk_and_sk_prefix(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": []}
+        with patch("settings_handler.table", mock_table):
+            list_alerts(USER_ID)
+        mock_table.query.assert_called_once()
+
+    def test_query_sorted_newest_first(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": []}
+        with patch("settings_handler.table", mock_table):
+            list_alerts(USER_ID)
+        call_kwargs = mock_table.query.call_args[1]
+        assert call_kwargs.get("ScanIndexForward") is False
+
+
+# ── Tests: dismiss_alert (v3.0) ─────────────────────────────────────────────────
+
+class TestDismissAlert:
+
+    def test_returns_true_when_alert_found_and_dismissed(self):
+        alert = make_alert_item(ALERT_ID)
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": [alert]}
+        mock_table.update_item.return_value = {}
+        with patch("settings_handler.table", mock_table):
+            result = dismiss_alert(USER_ID, ALERT_ID)
+        assert result is True
+        mock_table.update_item.assert_called_once()
+
+    def test_returns_false_when_alert_not_found(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": []}
+        with patch("settings_handler.table", mock_table):
+            result = dismiss_alert(USER_ID, "nonexistent-alert")
+        assert result is False
+        mock_table.update_item.assert_not_called()
+
+    def test_update_called_with_correct_key(self):
+        alert = make_alert_item(ALERT_ID)
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": [alert]}
+        mock_table.update_item.return_value = {}
+        with patch("settings_handler.table", mock_table):
+            dismiss_alert(USER_ID, ALERT_ID)
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["Key"]["PK"] == alert["PK"]
+        assert call_kwargs["Key"]["SK"] == alert["SK"]
+
+    def test_sets_dismissed_to_true(self):
+        alert = make_alert_item(ALERT_ID)
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": [alert]}
+        mock_table.update_item.return_value = {}
+        with patch("settings_handler.table", mock_table):
+            dismiss_alert(USER_ID, ALERT_ID)
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["ExpressionAttributeValues"][":d"] is True
+
+
 # ── Tests: lambda_handler ─────────────────────────────────────────────────────
 
 class TestSettingsLambdaHandler:
@@ -411,3 +527,84 @@ class TestSettingsLambdaHandler:
              patch("settings_handler.upsert_settings"):
             result = lambda_handler(make_event("PUT", "/users/settings", body={"weeklyGoal": 1}), None)
         assert result["statusCode"] == 200
+
+    # ── v3.0: GET /users/alerts ────────────────────────────────────────────────
+
+    def test_get_alerts_returns_200_with_alerts(self):
+        with patch("settings_handler.list_alerts", return_value=[make_alert_item()]):
+            result = lambda_handler(make_event("GET", "/users/alerts"), None)
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["count"] == 1
+        assert len(body["alerts"]) == 1
+
+    def test_get_alerts_returns_empty_list_when_none(self):
+        with patch("settings_handler.list_alerts", return_value=[]):
+            result = lambda_handler(make_event("GET", "/users/alerts"), None)
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["count"] == 0
+        assert body["alerts"] == []
+
+    def test_get_alerts_cleans_internal_fields(self):
+        with patch("settings_handler.list_alerts", return_value=[make_alert_item()]):
+            result = lambda_handler(make_event("GET", "/users/alerts"), None)
+        alert = json.loads(result["body"])["alerts"][0]
+        assert "alertId" in alert
+        assert "message" in alert
+        assert "dismissed" in alert
+        assert "createdAt" in alert
+        assert "PK" not in alert
+        assert "SK" not in alert
+        assert "userId" not in alert
+        assert "ttl" not in alert
+
+    def test_get_alerts_requires_auth(self):
+        event = make_event("GET", "/users/alerts")
+        event["requestContext"] = {}
+        result = lambda_handler(event, None)
+        assert result["statusCode"] == 401
+
+    # ── v3.0: PUT /users/alerts/{alertId}/dismiss ─────────────────────────────
+
+    def test_dismiss_returns_200_on_success(self):
+        with patch("settings_handler.dismiss_alert", return_value=True):
+            result = lambda_handler(
+                make_event("PUT", f"/users/alerts/{ALERT_ID}/dismiss", path_params={"alertId": ALERT_ID}),
+                None
+            )
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["alertId"] == ALERT_ID
+
+    def test_dismiss_returns_404_when_alert_not_found(self):
+        with patch("settings_handler.dismiss_alert", return_value=False):
+            result = lambda_handler(
+                make_event("PUT", f"/users/alerts/{ALERT_ID}/dismiss", path_params={"alertId": ALERT_ID}),
+                None
+            )
+        assert result["statusCode"] == 404
+
+    def test_dismiss_returns_400_when_alert_id_missing(self):
+        result = lambda_handler(
+            make_event("PUT", "/users/alerts//dismiss", path_params={}),
+            None
+        )
+        assert result["statusCode"] == 400
+
+    def test_dismiss_requires_auth(self):
+        event = make_event("PUT", f"/users/alerts/{ALERT_ID}/dismiss", path_params={"alertId": ALERT_ID})
+        event["requestContext"] = {}
+        result = lambda_handler(event, None)
+        assert result["statusCode"] == 401
+
+    def test_clean_alert_strips_internal_fields(self):
+        alert_item = make_alert_item()
+        cleaned = _clean_alert(alert_item)
+        assert "PK" not in cleaned
+        assert "SK" not in cleaned
+        assert "userId" not in cleaned
+        assert "ttl" not in cleaned
+        assert "entityType" not in cleaned
+        assert "alertId" in cleaned
+        assert "message" in cleaned

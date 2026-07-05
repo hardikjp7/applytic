@@ -1,12 +1,17 @@
 """
-Settings Lambda - v2.0
+Settings Lambda - v3.0
 Handles: GET /users/settings, PUT /users/settings
+         GET /users/alerts, PUT /users/alerts/{alertId}/dismiss   (v3.0 NEW)
 
 Fix: compute_streak was using a rolling 7-day window (days//7) which means
 "last week" could span parts of two calendar weeks, giving wrong counts.
 Now uses proper ISO week numbers so week_1 = last Mon-Sun, week_2 = the
 Mon-Sun before that, etc.  This matches what the Dashboard progress bar
 shows (current ISO week Mon-Sun).
+
+v3.0: alerts are written by the digest Lambda's detect_rejection_patterns()
+as ALERT# items under USER#{userId}. This handler only reads/dismisses them -
+no alert generation logic lives here, keeping a single source of truth in digest.
 """
 import os
 import json
@@ -179,11 +184,62 @@ def upsert_settings(user_id: str, weekly_goal: int, streak_count: int, streak_la
     return item
 
 
+# ── v3.0: rejection pattern alerts ────────────────────────────────────────────
+
+@tracer.capture_method
+def list_alerts(user_id: str, include_dismissed: bool = False) -> list[dict]:
+    """
+    Returns ALERT# items for a user, newest first.
+    By default excludes dismissed alerts (used for the Dashboard banner).
+    """
+    result = table.query(
+        KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("ALERT#"),
+        ScanIndexForward=False,  # newest first
+    )
+    items = result.get("Items", [])
+    if not include_dismissed:
+        items = [i for i in items if not i.get("dismissed", False)]
+    return items
+
+
+@tracer.capture_method
+def dismiss_alert(user_id: str, alert_id: str) -> bool:
+    """
+    Marks an alert as dismissed. Returns True if found and updated,
+    False if no alert with that id exists for the user.
+    """
+    result = table.query(
+        KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("ALERT#"),
+    )
+    items = result.get("Items", [])
+    match = next((i for i in items if i.get("alertId") == alert_id), None)
+    if not match:
+        return False
+
+    table.update_item(
+        Key={"PK": match["PK"], "SK": match["SK"]},
+        UpdateExpression="SET dismissed = :d",
+        ExpressionAttributeValues={":d": True},
+    )
+    return True
+
+
+def _clean_alert(item: dict) -> dict:
+    """Return only fields the frontend needs."""
+    return {
+        "alertId": item.get("alertId"),
+        "message": item.get("message"),
+        "dismissed": item.get("dismissed", False),
+        "createdAt": item.get("createdAt"),
+    }
+
+
 @logger.inject_lambda_context(correlation_id_path="requestContext.requestId")
 @tracer.capture_lambda_handler
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     method = event.get("httpMethod", "")
     path = event.get("path", "")
+    path_params = event.get("pathParameters") or {}
 
     body, parse_error = parse_body(event)
     if parse_error:
@@ -227,6 +283,25 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
                     "streakLastUpdated": last_updated,
                 }
             }, event)
+
+        # ── v3.0: GET /users/alerts ─────────────────────────────────────────────
+        if method == "GET" and path.endswith("/alerts"):
+            alerts = list_alerts(user_id)
+            cleaned = [_clean_alert(a) for a in alerts]
+            return resp(200, {"alerts": cleaned, "count": len(cleaned)}, event)
+
+        # ── v3.0: PUT /users/alerts/{alertId}/dismiss ────────────────────────────
+        if method == "PUT" and path.endswith("/dismiss"):
+            alert_id = path_params.get("alertId")
+            if not alert_id:
+                return resp(400, {"error": "alertId is required"}, event)
+
+            dismissed = dismiss_alert(user_id, alert_id)
+            if not dismissed:
+                return resp(404, {"error": "Alert not found"}, event)
+
+            logger.info("Alert dismissed", extra={"user_id": user_id, "alert_id": alert_id})
+            return resp(200, {"message": "Dismissed", "alertId": alert_id}, event)
 
         return resp(404, {"error": "Route not found"}, event)
 
