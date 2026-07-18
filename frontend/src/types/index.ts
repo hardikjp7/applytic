@@ -99,3 +99,19 @@ export interface Note {
   content: string
   createdAt: string
 }
+
+// ── v3.0: Interview Prep ────────────────────────────────────────────────────
+
+export interface InterviewQuestion {
+  id: string
+  text: string
+  practiced: boolean
+  answer: string
+}
+
+export interface InterviewPrep {
+  appId: string
+  questions: InterviewQuestion[]
+  generatedAt: string
+  updatedAt: string
+}
