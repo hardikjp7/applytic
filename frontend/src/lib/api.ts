@@ -1,5 +1,5 @@
 import { api } from './amplify'
-import type { Application, AppStatus, Patterns, UserSettings, Note, InterviewPrep, InterviewQuestion } from '../types'
+import type { Application, AppStatus, Patterns, UserSettings, Note, InterviewPrep, InterviewQuestion, PatternAlert } from '../types'
 
 // ── Applications ──────────────────────────────────────────────────────────────
 
@@ -132,4 +132,12 @@ export const updateInterviewQuestion = async (
   data: Partial<Pick<InterviewQuestion, 'practiced' | 'answer'>>
 ): Promise<void> => {
   await api.put(`/applications/${appId}/interview-prep/${questionId}`, data)
+}
+
+// v3.0: Rejection pattern alert - written by digest Lambda, read/dismissed via settings Lambda
+export interface PatternAlert {
+  alertId: string
+  message: string
+  dismissed: boolean
+  createdAt: string
 }

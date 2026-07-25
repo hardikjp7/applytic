@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useApplications } from '../hooks/useApplications'
 import { useSettings } from '../hooks/useSettings'
+import { useAlerts } from '../hooks/useAlerts'
 import { STATUS_LABELS, STATUS_COLORS } from '../lib/utils'
 import type { AppStatus } from '../types'
 import { formatDistanceToNow } from 'date-fns'
-import { TrendingUp, Target, Zap, Award, ArrowRight, Flame, Pencil, Check, X } from 'lucide-react'
+import { TrendingUp, Target, Zap, Award, ArrowRight, Flame, Pencil, Check, X, AlertTriangle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 const card = 'bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl'
@@ -30,9 +31,47 @@ function getWeekStart(date: Date): Date {
   return d
 }
 
+// v3.0: Rejection pattern alert banner - shows one alert at a time with dismiss
+interface AlertBannerProps {
+  message: string
+  alertId: string
+  index: number
+  total: number
+  onDismiss: (alertId: string) => void
+}
+
+function AlertBanner({ message, alertId, index, total, onDismiss }: AlertBannerProps) {
+  return (
+    <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl px-4 py-3">
+      <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
+            Pattern alert
+          </p>
+          {total > 1 && (
+            <span className="text-xs text-amber-500 dark:text-amber-500">
+              {index + 1} of {total}
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-amber-800 dark:text-amber-300">{message}</p>
+      </div>
+      <button
+        onClick={() => onDismiss(alertId)}
+        className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 transition-colors p-0.5"
+        title="Dismiss alert"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { applications, loading: appsLoading } = useApplications()
   const { settings, loading: settingsLoading, saveGoal } = useSettings()
+  const { alerts, dismiss } = useAlerts()
 
   const [editingGoal, setEditingGoal] = useState(false)
   const [goalInput, setGoalInput] = useState('')
@@ -135,6 +174,22 @@ export default function Dashboard() {
         <p className="text-sm text-gray-400 mt-0.5">Your job search at a glance</p>
       </div>
 
+      {/* v3.0: Alert banners - shown even on empty state */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.map((alert, i) => (
+            <AlertBanner
+              key={alert.alertId}
+              alertId={alert.alertId}
+              message={alert.message}
+              index={i}
+              total={alerts.length}
+              onDismiss={dismiss}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Weekly goal card - shown even on empty state */}
       <WeeklyGoalCard
         currentWeekCount={currentWeekCount}
@@ -178,6 +233,22 @@ export default function Dashboard() {
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Dashboard</h1>
         <p className="text-sm text-gray-400 mt-0.5">Your job search at a glance</p>
       </div>
+
+      {/* v3.0: Alert banners - rendered above weekly goal, below header */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.map((alert, i) => (
+            <AlertBanner
+              key={alert.alertId}
+              alertId={alert.alertId}
+              message={alert.message}
+              index={i}
+              total={alerts.length}
+              onDismiss={dismiss}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Weekly goal + streak */}
       <WeeklyGoalCard
@@ -256,7 +327,7 @@ export default function Dashboard() {
   )
 }
 
-// ── Weekly Goal Card component ─────────────────────────────────────────────────
+// Weekly Goal Card component
 
 interface WeeklyGoalCardProps {
   currentWeekCount: number

@@ -115,3 +115,14 @@ export interface InterviewPrep {
   generatedAt: string
   updatedAt: string
 }
+
+// v3.0: Rejection pattern alerts
+
+export const getAlerts = async (): Promise<PatternAlert[]> => {
+  const res = await api.get('/users/alerts')
+  return res.data.alerts
+}
+
+export const dismissAlert = async (alertId: string): Promise<void> => {
+  await api.put(`/users/alerts/${alertId}/dismiss`)
+}
