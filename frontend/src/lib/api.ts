@@ -1,5 +1,5 @@
 import { api } from './amplify'
-import type { Application, AppStatus, Patterns, UserSettings, Note } from '../types'
+import type { Application, AppStatus, Patterns, UserSettings, Note, InterviewPrep, InterviewQuestion, PatternAlert } from '../types'
 
 // ── Applications ──────────────────────────────────────────────────────────────
 
@@ -112,4 +112,32 @@ export const deleteNote = async (
   noteId: string
 ): Promise<void> => {
   await api.delete(`/applications/${appId}/notes/${noteId}`)
+}
+
+// ── v3.0: Interview Prep ────────────────────────────────────────────────────
+
+export const getInterviewPrep = async (appId: string): Promise<InterviewPrep | null> => {
+  const res = await api.get(`/applications/${appId}/interview-prep`)
+  return res.data.prep
+}
+
+export const generateInterviewPrep = async (appId: string): Promise<InterviewPrep> => {
+  const res = await api.post(`/applications/${appId}/interview-prep/generate`)
+  return res.data.prep
+}
+
+export const updateInterviewQuestion = async (
+  appId: string,
+  questionId: string,
+  data: Partial<Pick<InterviewQuestion, 'practiced' | 'answer'>>
+): Promise<void> => {
+  await api.put(`/applications/${appId}/interview-prep/${questionId}`, data)
+}
+
+// v3.0: Rejection pattern alert - written by digest Lambda, read/dismissed via settings Lambda
+export interface PatternAlert {
+  alertId: string
+  message: string
+  dismissed: boolean
+  createdAt: string
 }

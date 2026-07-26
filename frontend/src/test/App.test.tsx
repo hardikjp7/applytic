@@ -32,6 +32,11 @@ vi.mock('../lib/api', () => ({
   getNotes: vi.fn(),
   createNote: vi.fn(),
   deleteNote: vi.fn(),
+  getAlerts: vi.fn().mockResolvedValue([]),
+  dismissAlert: vi.fn().mockResolvedValue(undefined),
+  getInterviewPrep: vi.fn().mockResolvedValue(null),
+  generateInterviewPrep: vi.fn(),
+  updateInterviewQuestion: vi.fn(),
 }))
 
 vi.mock('../lib/amplify', () => ({
@@ -200,6 +205,7 @@ describe('Dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.getSettings).mockResolvedValue({ weeklyGoal: 10, streakCount: 0, streakLastUpdated: null })
+    vi.mocked(api.getAlerts).mockResolvedValue([])
   })
 
   it('shows empty state when no applications', async () => {

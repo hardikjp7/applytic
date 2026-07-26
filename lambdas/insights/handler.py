@@ -1,11 +1,20 @@
 """
-Insights Lambda - v2.1
+Insights Lambda - v3.0
 Handles: GET /insights  POST /insights/chat
 
 v2.1 additions to compute_patterns():
   - funnel: applied -> screened -> interview -> offer counts + step conversion rates
   - responseRateTimeSeries: weekly response rate over last 8 ISO weeks
   - statusHistory: applications that moved INTO each status per ISO week (last 8 weeks)
+
+v3.0 additions to build_context_for_llm():
+  - notes timeline for each app currently in 'interview' status (up to 5 most
+    recent notes per app)
+  - interview prep questions for apps currently in 'interview' status
+  - active (undismissed) rejection pattern alerts for the user
+  All enrichment is scoped to 'interview' status apps only to keep the
+  number of extra queries small - never queries notes/prep for the full
+  20-app recent list, only the subset actually in an interview.
 """
 import json
 import os
@@ -13,7 +22,7 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
 import boto3
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from pydantic import BaseModel, field_validator
@@ -30,6 +39,10 @@ table = dynamodb.Table(TABLE_NAME)
 
 logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 tracer = Tracer(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
+
+# v3.0: context enrichment limits
+NOTES_PER_APP_LIMIT = 5
+MAX_INTERVIEW_APPS_FOR_CONTEXT = 20  # safety cap, matches recent-apps cap below
 
 
 class ChatRequest(BaseModel):
@@ -261,6 +274,103 @@ def fetch_all_applications(user_id: str) -> list:
     return [item for item in result["Items"] if item.get("entityType") == "APPLICATION"]
 
 
+# ── v3.0: context enrichment ──────────────────────────────────────────────────
+
+@tracer.capture_method
+def fetch_recent_notes_for_app(app_id: str, limit: int = NOTES_PER_APP_LIMIT) -> list[dict]:
+    """
+    Returns up to `limit` most recent notes for a single application,
+    newest first. Used only for apps currently in 'interview' status to
+    keep the number of extra queries bounded.
+    """
+    result = table.query(
+        KeyConditionExpression=Key("PK").eq(f"APP#{app_id}") & Key("SK").begins_with("NOTE#"),
+        FilterExpression=Attr("entityType").eq("NOTE"),
+        ScanIndexForward=False,  # newest first
+        Limit=limit,
+    )
+    return result.get("Items", [])
+
+
+@tracer.capture_method
+def fetch_interview_prep_for_app(app_id: str) -> list[dict]:
+    """
+    Returns the stored interview prep questions for an application, or an
+    empty list if none have been generated yet.
+    """
+    result = table.get_item(Key={"PK": f"APP#{app_id}", "SK": "PREP#v1"})
+    item = result.get("Item")
+    if not item:
+        return []
+    return item.get("questions", [])
+
+
+@tracer.capture_method
+def fetch_active_alerts(user_id: str) -> list[str]:
+    """
+    Returns message strings for undismissed rejection pattern alerts.
+    Mirrors settings/handler.py's list_alerts() but kept local to avoid a
+    cross-Lambda import - both read the same ALERT# items under USER#{userId}.
+    """
+    result = table.query(
+        KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("ALERT#"),
+        ScanIndexForward=False,
+    )
+    items = result.get("Items", [])
+    return [i.get("message", "") for i in items if not i.get("dismissed", False) and i.get("message")]
+
+
+@tracer.capture_method
+def build_coach_enrichment(user_id: str, apps: list) -> dict:
+    """
+    Gathers the v3.0 enrichment data: notes + interview prep for apps
+    currently in 'interview' status, and active rejection pattern alerts.
+
+    Returns:
+      {
+        "interviewNotes": { appId: [note dicts] },
+        "interviewPrep":  { appId: [question dicts] },
+        "alerts": [message strings],
+      }
+    Never raises - any per-app fetch failure is logged and skipped so a
+    single bad record can't break the whole coach response.
+    """
+    interview_apps = [a for a in apps if a.get("status") == "interview"][:MAX_INTERVIEW_APPS_FOR_CONTEXT]
+
+    interview_notes: dict[str, list] = {}
+    interview_prep: dict[str, list] = {}
+
+    for app in interview_apps:
+        app_id = app.get("appId")
+        if not app_id:
+            continue
+        try:
+            notes = fetch_recent_notes_for_app(app_id)
+            if notes:
+                interview_notes[app_id] = notes
+        except Exception:
+            logger.warning("Failed to fetch notes for context enrichment", extra={"app_id": app_id})
+
+        try:
+            questions = fetch_interview_prep_for_app(app_id)
+            if questions:
+                interview_prep[app_id] = questions
+        except Exception:
+            logger.warning("Failed to fetch interview prep for context enrichment", extra={"app_id": app_id})
+
+    try:
+        alerts = fetch_active_alerts(user_id)
+    except Exception:
+        logger.warning("Failed to fetch alerts for context enrichment", extra={"user_id": user_id})
+        alerts = []
+
+    return {
+        "interviewNotes": interview_notes,
+        "interviewPrep": interview_prep,
+        "alerts": alerts,
+    }
+
+
 @tracer.capture_method
 def compute_patterns(apps: list) -> dict:
     if not apps:
@@ -355,7 +465,17 @@ def compute_patterns(apps: list) -> dict:
     }
 
 
-def build_context_for_llm(apps: list, patterns: dict) -> str:
+def build_context_for_llm(apps: list, patterns: dict, enrichment: dict = None) -> str:
+    """
+    v3.0: now accepts an optional `enrichment` dict (from build_coach_enrichment)
+    containing interview notes, interview prep questions, and active alerts.
+    When omitted or empty, behaves exactly as before - fully backward compatible.
+    """
+    enrichment = enrichment or {}
+    interview_notes = enrichment.get("interviewNotes", {})
+    interview_prep = enrichment.get("interviewPrep", {})
+    alerts = enrichment.get("alerts", [])
+
     recent = sorted(apps, key=lambda x: x.get("createdAt", ""), reverse=True)[:20]
     lines = [
         f"Total applications: {patterns['summary']['total']}",
@@ -373,12 +493,44 @@ def build_context_for_llm(apps: list, patterns: dict) -> str:
     lines.append("\nResponse rates by company size:")
     for size, data in patterns["breakdowns"]["byCompanySize"].items():
         lines.append(f"  {size}: {data['responseRate']}% ({data['total']} apps)")
+
+    # v3.0: active rejection pattern alerts
+    if alerts:
+        lines.append("\nActive pattern alerts for this user:")
+        for a in alerts:
+            lines.append(f"  - {a}")
+
     lines.append("\nRecent applications (last 20):")
     for app in recent:
         lines.append(
             f"  {app.get('company')} | {app.get('role')} | {app.get('status')} | "
             f"source={app.get('source')} | resume={app.get('resumeVersion')}"
         )
+
+    # v3.0: interview notes + prep questions, scoped to apps currently interviewing
+    if interview_notes or interview_prep:
+        lines.append("\nInterview context (applications currently in 'interview' status):")
+        interview_app_ids = set(interview_notes.keys()) | set(interview_prep.keys())
+        app_by_id = {a.get("appId"): a for a in apps}
+
+        for app_id in interview_app_ids:
+            app = app_by_id.get(app_id, {})
+            company = app.get("company", "Unknown")
+            role = app.get("role", "Unknown")
+            lines.append(f"\n  {company} - {role}:")
+
+            notes = interview_notes.get(app_id, [])
+            if notes:
+                lines.append("    Recent notes:")
+                for n in notes:
+                    content = n.get("content", "")
+                    lines.append(f"      - {content}")
+
+            questions = interview_prep.get(app_id, [])
+            if questions:
+                practiced_count = sum(1 for q in questions if q.get("practiced"))
+                lines.append(f"    Interview prep: {practiced_count}/{len(questions)} questions practiced")
+
     return "\n".join(lines)
 
 
@@ -387,6 +539,8 @@ def chat_with_coach(user_message: str, context: str) -> str:
     system_prompt = """You are a pragmatic, data-driven job search coach.
 Give specific, actionable advice based on what the data actually shows.
 Be direct and honest. Reference specific numbers and patterns.
+If interview context or active alerts are present, use them to give more
+specific, personalised advice rather than generic tips.
 Keep responses under 250 words unless asked for more detail."""
 
     user_prompt = f"Here is my job search data:\n\n{context}\n\nMy question: {user_message}"
@@ -453,9 +607,15 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
                     "rateLimited": True,
                 }, event)
 
-            context_str = build_context_for_llm(apps, patterns)
+            # v3.0: enrich context with interview notes, prep questions, and active alerts
+            enrichment = build_coach_enrichment(user_id, apps)
+            context_str = build_context_for_llm(apps, patterns, enrichment)
             reply = chat_with_coach(req.message, context_str)
-            logger.info("Chat response sent", extra={"remaining_chats": remaining})
+            logger.info("Chat response sent", extra={
+                "remaining_chats": remaining,
+                "interview_apps_enriched": len(enrichment["interviewNotes"]) + len(enrichment["interviewPrep"]),
+                "active_alerts": len(enrichment["alerts"]),
+            })
             return resp(200, {"reply": reply, "patterns": patterns, "remainingChats": remaining}, event)
 
         return resp(404, {"error": "Route not found"}, event)

@@ -1,8 +1,10 @@
 """
-Unit tests for Digest Lambda - v1.3
+Unit tests for Digest Lambda - v3.0
 Fix: _FakeLogger.inject_lambda_context now handles both
      @logger.inject_lambda_context (no parens - fn passed directly)
      @logger.inject_lambda_context(...) (with parens - returns decorator)
+
+v3.0 additions: detect_rejection_patterns, store_alerts tests.
 Run: python -m pytest tests/test_digest.py -v
 """
 import sys
@@ -77,21 +79,26 @@ generate_weekly_tip = _mod.generate_weekly_tip
 build_email_html = _mod.build_email_html
 send_digest = _mod.send_digest
 lambda_handler = _mod.lambda_handler
+detect_rejection_patterns = _mod.detect_rejection_patterns
+store_alerts = _mod.store_alerts
+MIN_APPS_FOR_ZERO_RESPONSE_ALERT = _mod.MIN_APPS_FOR_ZERO_RESPONSE_ALERT
+RESPONSE_RATE_DROP_THRESHOLD_PP = _mod.RESPONSE_RATE_DROP_THRESHOLD_PP
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-def make_app(app_id, user_id, company, status, days_ago=3):
+def make_app(app_id, user_id, company, status, days_ago=3, resume_version='v1', source='linkedin', date_applied=None):
     ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    applied_date = date_applied or (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime('%Y-%m-%d')
     return {
         'appId': app_id,
         'userId': user_id,
         'company': company,
         'role': 'Software Engineer',
         'status': status,
-        'source': 'linkedin',
-        'resumeVersion': 'v1',
+        'source': source,
+        'resumeVersion': resume_version,
         'companySize': 'startup',
-        'dateApplied': '2024-01-12',
+        'dateApplied': applied_date,
         'createdAt': ts,
         'updatedAt': ts,
         'entityType': 'APPLICATION',
@@ -110,6 +117,10 @@ def make_status_event(app_id, from_status, to_status, company='Stripe', role='SW
         'createdAt': ts,
         'entityType': 'STATUS_EVENT',
     }
+
+
+def days_ago_str(n: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime('%Y-%m-%d')
 
 
 SAMPLE_APPS = [
@@ -308,6 +319,28 @@ class TestBuildEmailHtml:
         html = build_email_html(apps_with_interview, [], 'tip', 'user@test.com')
         assert '1' in html
 
+    # v3.0: alert section tests
+    def test_no_alert_section_when_no_alerts(self):
+        html = build_email_html(SAMPLE_APPS, SAMPLE_EVENTS, 'tip', 'user@test.com', alerts=[])
+        assert 'Pattern alert' not in html
+
+    def test_alert_section_renders_when_alerts_present(self):
+        alerts = ["Your 'v1-generic' resume has a 0% response rate across 5 applications."]
+        html = build_email_html(SAMPLE_APPS, SAMPLE_EVENTS, 'tip', 'user@test.com', alerts=alerts)
+        assert 'Pattern alert' in html
+        assert 'v1-generic' in html
+
+    def test_multiple_alerts_all_rendered(self):
+        alerts = ["Alert message one.", "Alert message two."]
+        html = build_email_html(SAMPLE_APPS, SAMPLE_EVENTS, 'tip', 'user@test.com', alerts=alerts)
+        assert 'Alert message one.' in html
+        assert 'Alert message two.' in html
+
+    def test_alerts_default_to_none_safely(self):
+        # Calling without the alerts kwarg at all should not raise
+        html = build_email_html(SAMPLE_APPS, SAMPLE_EVENTS, 'tip', 'user@test.com')
+        assert isinstance(html, str)
+
 
 # ── Tests: send_digest ────────────────────────────────────────────────────────
 
@@ -337,6 +370,176 @@ class TestSendDigest:
         assert 'weekly' in call_kwargs['Message']['Subject']['Data'].lower()
 
 
+# ── Tests: detect_rejection_patterns (v3.0) ───────────────────────────────────
+
+class TestDetectRejectionPatterns:
+
+    def test_empty_apps_returns_empty_list(self):
+        assert detect_rejection_patterns('user-1', []) == []
+
+    def test_no_alerts_when_data_insufficient(self):
+        # Only 3 apps with a given resume version - below the 5-app minimum
+        apps = [
+            make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected', resume_version='v1-generic')
+            for i in range(3)
+        ]
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert alerts == []
+
+    def test_zero_response_resume_version_triggers_alert(self):
+        apps = [
+            make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected', resume_version='v1-generic')
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT)
+        ]
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert any('v1-generic' in a for a in alerts)
+
+    def test_no_alert_when_resume_version_has_some_responses(self):
+        apps = [
+            make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected', resume_version='v2')
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT - 1)
+        ]
+        apps.append(make_app('app-resp', 'user-1', 'RespondedCo', 'interview', resume_version='v2'))
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert not any('v2' in a for a in alerts)
+
+    def test_zero_response_source_channel_triggers_alert(self):
+        apps = [
+            make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected', source='cold')
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT)
+        ]
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert any('cold' in a for a in alerts)
+
+    def test_no_alert_when_source_channel_has_responses(self):
+        apps = [
+            make_app(f'app-{i}', 'user-1', f'Co{i}', 'offer', source='referral')
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT)
+        ]
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert not any('referral' in a for a in alerts)
+
+    def test_response_rate_drop_triggers_alert(self):
+        # Last week: 5 apps, all responded (100%)
+        # This week: 5 apps, none responded (0%) -> 100pp drop, well above threshold
+        apps = (
+            [make_app(f'last-{i}', 'user-1', f'Co{i}', 'interview', resume_version='v3', source='referral', date_applied=days_ago_str(10)) for i in range(5)] +
+            [make_app(f'this-{i}', 'user-1', f'Co{i}', 'applied', resume_version='v3', source='referral', date_applied=days_ago_str(2)) for i in range(5)]
+        )
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert any('dropped' in a.lower() for a in alerts)
+
+    def test_no_drop_alert_when_rate_improves(self):
+        # Last week: 0% response. This week: 100% response - improvement, no alert
+        apps = (
+            [make_app(f'last-{i}', 'user-1', f'Co{i}', 'rejected', resume_version='v3', source='referral', date_applied=days_ago_str(10)) for i in range(5)] +
+            [make_app(f'this-{i}', 'user-1', f'Co{i}', 'offer', resume_version='v3', source='referral', date_applied=days_ago_str(2)) for i in range(5)]
+        )
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert not any('dropped' in a.lower() for a in alerts)
+
+    def test_no_drop_alert_when_missing_one_week_of_data(self):
+        # Only this week has apps, no last week data - can't compute a drop
+        apps = [make_app(f'this-{i}', 'user-1', f'Co{i}', 'applied', date_applied=days_ago_str(2)) for i in range(5)]
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert not any('dropped' in a.lower() for a in alerts)
+
+    def test_multiple_patterns_can_fire_together(self):
+        apps = [
+            make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected', resume_version='v1-generic', source='cold')
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT)
+        ]
+        alerts = detect_rejection_patterns('user-1', apps)
+        # Both resume version AND source channel alerts should fire since they're 0% together
+        assert len(alerts) >= 2
+
+    def test_handles_missing_resume_version_field(self):
+        apps = [
+            {**make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected'), 'resumeVersion': None}
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT)
+        ]
+        # Should not raise - falls back to 'default' bucket
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert isinstance(alerts, list)
+
+    def test_handles_missing_source_field(self):
+        apps = [
+            {**make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected'), 'source': None}
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT)
+        ]
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert isinstance(alerts, list)
+
+    def test_handles_malformed_date_applied_gracefully(self):
+        apps = [
+            {**make_app('app-1', 'user-1', 'Co', 'applied'), 'dateApplied': 'not-a-date'}
+        ]
+        # Should not raise
+        alerts = detect_rejection_patterns('user-1', apps)
+        assert isinstance(alerts, list)
+
+
+# ── Tests: store_alerts (v3.0) ─────────────────────────────────────────────────
+
+class TestStoreAlerts:
+
+    def test_writes_one_item_per_alert_message(self):
+        mock_table = MagicMock()
+        mock_table.put_item.return_value = {}
+        messages = ["Alert one.", "Alert two.", "Alert three."]
+        with patch('digest_handler.table', mock_table):
+            stored = store_alerts('user-1', messages)
+        assert mock_table.put_item.call_count == 3
+        assert len(stored) == 3
+
+    def test_returns_empty_list_for_no_messages(self):
+        mock_table = MagicMock()
+        with patch('digest_handler.table', mock_table):
+            stored = store_alerts('user-1', [])
+        assert stored == []
+        mock_table.put_item.assert_not_called()
+
+    def test_stored_items_have_correct_pk_sk_pattern(self):
+        mock_table = MagicMock()
+        mock_table.put_item.return_value = {}
+        with patch('digest_handler.table', mock_table):
+            stored = store_alerts('user-1', ["Test alert"])
+        item = stored[0]
+        assert item['PK'] == 'USER#user-1'
+        assert item['SK'].startswith('ALERT#')
+
+    def test_stored_items_have_dismissed_false_by_default(self):
+        mock_table = MagicMock()
+        mock_table.put_item.return_value = {}
+        with patch('digest_handler.table', mock_table):
+            stored = store_alerts('user-1', ["Test alert"])
+        assert stored[0]['dismissed'] is False
+
+    def test_stored_items_have_ttl_set(self):
+        mock_table = MagicMock()
+        mock_table.put_item.return_value = {}
+        with patch('digest_handler.table', mock_table):
+            stored = store_alerts('user-1', ["Test alert"])
+        assert 'ttl' in stored[0]
+        expected_ttl = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+        assert abs(stored[0]['ttl'] - expected_ttl) < 60
+
+    def test_stored_items_have_entity_type_alert(self):
+        mock_table = MagicMock()
+        mock_table.put_item.return_value = {}
+        with patch('digest_handler.table', mock_table):
+            stored = store_alerts('user-1', ["Test alert"])
+        assert stored[0]['entityType'] == 'ALERT'
+
+    def test_each_alert_has_unique_alert_id(self):
+        mock_table = MagicMock()
+        mock_table.put_item.return_value = {}
+        with patch('digest_handler.table', mock_table):
+            stored = store_alerts('user-1', ["Alert A", "Alert B"])
+        ids = [s['alertId'] for s in stored]
+        assert len(ids) == len(set(ids))
+
+
 # ── Tests: lambda_handler ─────────────────────────────────────────────────────
 
 class TestDigestLambdaHandler:
@@ -353,6 +556,7 @@ class TestDigestLambdaHandler:
              patch('digest_handler.get_user_apps', return_value=SAMPLE_APPS), \
              patch('digest_handler.get_week_events', return_value=SAMPLE_EVENTS), \
              patch('digest_handler.generate_weekly_tip', return_value='Great tip.'), \
+             patch('digest_handler.detect_rejection_patterns', return_value=[]), \
              patch('digest_handler.send_digest'), \
              patch('digest_handler.boto3') as mock_boto3, \
              patch.dict(os.environ, {'USER_POOL_ID': 'us-east-1_test'}):
@@ -365,6 +569,7 @@ class TestDigestLambdaHandler:
              patch('digest_handler.get_user_apps', return_value=SAMPLE_APPS), \
              patch('digest_handler.get_week_events', return_value=[]), \
              patch('digest_handler.generate_weekly_tip', return_value='tip'), \
+             patch('digest_handler.detect_rejection_patterns', return_value=[]), \
              patch('digest_handler.send_digest'), \
              patch('digest_handler.boto3') as mock_boto3, \
              patch.dict(os.environ, {'USER_POOL_ID': 'us-east-1_test'}):
@@ -407,6 +612,7 @@ class TestDigestLambdaHandler:
              patch('digest_handler.get_user_apps', return_value=SAMPLE_APPS), \
              patch('digest_handler.get_week_events', return_value=[]), \
              patch('digest_handler.generate_weekly_tip', return_value='tip'), \
+             patch('digest_handler.detect_rejection_patterns', return_value=[]), \
              patch('digest_handler.send_digest'), \
              patch('digest_handler.boto3') as mock_boto3, \
              patch.dict(os.environ, {'USER_POOL_ID': 'us-east-1_test'}):
@@ -425,3 +631,63 @@ class TestDigestLambdaHandler:
         assert result['statusCode'] == 200
         body = json.loads(result['body'])
         assert body['sent'] == 0
+
+    # v3.0: alert generation wired into the handler run
+    def test_handler_calls_store_alerts_when_patterns_detected(self):
+        with patch('digest_handler.get_active_users', return_value=[{'userId': 'user-1'}]), \
+             patch('digest_handler.get_user_apps', return_value=SAMPLE_APPS), \
+             patch('digest_handler.get_week_events', return_value=[]), \
+             patch('digest_handler.generate_weekly_tip', return_value='tip'), \
+             patch('digest_handler.detect_rejection_patterns', return_value=['Some alert message']), \
+             patch('digest_handler.store_alerts') as mock_store_alerts, \
+             patch('digest_handler.send_digest'), \
+             patch('digest_handler.boto3') as mock_boto3, \
+             patch.dict(os.environ, {'USER_POOL_ID': 'us-east-1_test'}):
+            mock_boto3.client.return_value = self._make_cognito()
+            lambda_handler({}, None)
+        mock_store_alerts.assert_called_once_with('user-1', ['Some alert message'])
+
+    def test_handler_does_not_call_store_alerts_when_no_patterns(self):
+        with patch('digest_handler.get_active_users', return_value=[{'userId': 'user-1'}]), \
+             patch('digest_handler.get_user_apps', return_value=SAMPLE_APPS), \
+             patch('digest_handler.get_week_events', return_value=[]), \
+             patch('digest_handler.generate_weekly_tip', return_value='tip'), \
+             patch('digest_handler.detect_rejection_patterns', return_value=[]), \
+             patch('digest_handler.store_alerts') as mock_store_alerts, \
+             patch('digest_handler.send_digest'), \
+             patch('digest_handler.boto3') as mock_boto3, \
+             patch.dict(os.environ, {'USER_POOL_ID': 'us-east-1_test'}):
+            mock_boto3.client.return_value = self._make_cognito()
+            lambda_handler({}, None)
+        mock_store_alerts.assert_not_called()
+
+    def test_handler_reports_alerts_generated_count(self):
+        with patch('digest_handler.get_active_users', return_value=[{'userId': 'user-1'}]), \
+             patch('digest_handler.get_user_apps', return_value=SAMPLE_APPS), \
+             patch('digest_handler.get_week_events', return_value=[]), \
+             patch('digest_handler.generate_weekly_tip', return_value='tip'), \
+             patch('digest_handler.detect_rejection_patterns', return_value=['Alert 1', 'Alert 2']), \
+             patch('digest_handler.store_alerts'), \
+             patch('digest_handler.send_digest'), \
+             patch('digest_handler.boto3') as mock_boto3, \
+             patch.dict(os.environ, {'USER_POOL_ID': 'us-east-1_test'}):
+            mock_boto3.client.return_value = self._make_cognito()
+            result = lambda_handler({}, None)
+        body = json.loads(result['body'])
+        assert body['alertsGenerated'] == 2
+
+    def test_handler_passes_alerts_to_email_html(self):
+        with patch('digest_handler.get_active_users', return_value=[{'userId': 'user-1'}]), \
+             patch('digest_handler.get_user_apps', return_value=SAMPLE_APPS), \
+             patch('digest_handler.get_week_events', return_value=[]), \
+             patch('digest_handler.generate_weekly_tip', return_value='tip'), \
+             patch('digest_handler.detect_rejection_patterns', return_value=['Alert message']), \
+             patch('digest_handler.store_alerts'), \
+             patch('digest_handler.build_email_html', wraps=_mod.build_email_html) as mock_build_html, \
+             patch('digest_handler.send_digest'), \
+             patch('digest_handler.boto3') as mock_boto3, \
+             patch.dict(os.environ, {'USER_POOL_ID': 'us-east-1_test'}):
+            mock_boto3.client.return_value = self._make_cognito()
+            lambda_handler({}, None)
+        call_kwargs = mock_build_html.call_args
+        assert call_kwargs[1]['alerts'] == ['Alert message']
