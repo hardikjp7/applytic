@@ -4,6 +4,169 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.0.0] - 2026-07-26
+
+### Added
+
+**Interview Prep Mode**
+- `applytic-interview-prep` Lambda - new function handling 3 routes
+- `POST /v1/applications/{appId}/interview-prep/generate` - fetches job description URL (5s timeout, 3000 char limit), passes role + company + JD to Amazon Nova Lite, generates 10 tailored questions, stores as `PREP#v1` item per application
+- `GET /v1/applications/{appId}/interview-prep` - returns stored questions or `prep: null` if not yet generated
+- `PUT /v1/applications/{appId}/interview-prep/{questionId}` - toggles practiced status and/or saves answer notes (read-modify-write, optimistic on frontend)
+- `INTERVIEW_PREP` DynamoDB entity: `PK=APP#{appId}`, `SK=PREP#v1`, single overwritten record per app
+- URL fetch falls back to role + company name only if URL is missing or fetch fails - never blocks the user
+- Interview Prep tab in `ApplicationDetailModal` - visible only for `interview` and `offer` status apps
+- Practiced count shown in tab label (e.g. `3/10`)
+- Regenerate button available once questions exist
+- Answer textarea saves on blur - no save button needed per question
+- `useInterviewPrep` React Query hook with optimistic checkbox toggles
+- `InterviewQuestion` and `InterviewPrep` types added to `types/index.ts`
+- 40 unit tests in `tests/test_interview_prep.py`
+
+**Rejection Pattern Alerts**
+- `detect_rejection_patterns(user_id, apps)` added to `lambdas/digest/handler.py`
+- Three patterns detected on every Monday digest run:
+  - Resume version with 0% response rate after 5+ applications
+  - Source channel with 0% response rate after 5+ applications
+  - Response rate dropped more than 20 percentage points week-over-week
+- Alerts stored as `ALERT#{timestamp}#{alertId}` items under `USER#{userId}`, 30-day TTL
+- Alerts section included in weekly digest email HTML when patterns are found
+- `GET /v1/users/alerts` - returns undismissed alerts, routed through `settingsLambda`
+- `PUT /v1/users/alerts/{alertId}/dismiss` - marks alert dismissed, routed through `settingsLambda`
+- Amber alert banner on `Dashboard.tsx` - renders above weekly goal card, one banner per active alert
+- Optimistic dismiss - alert removed from UI instantly, API call in background with rollback on error
+- `useAlerts` React Query hook with 5-minute stale time
+- `PatternAlert` type added to `types/index.ts`
+- 21 new tests in `tests/test_digest.py` (54 total, up from 33)
+- 18 new tests in `tests/test_settings.py` (47 total, up from 29)
+
+**Enhanced AI Coach Context**
+- `build_context_for_llm()` in `lambdas/insights/handler.py` extended with optional `enrichment` dict param - fully backward compatible
+- New "Active pattern alerts" section injected into coach context when undismissed alerts exist
+- New "Interview context" section per app currently in `interview` status - up to 5 most recent notes + practiced question count from interview prep
+- Three new helper functions: `fetch_recent_notes_for_app`, `fetch_interview_prep_for_app`, `fetch_active_alerts`
+- `build_coach_enrichment(user_id, apps)` orchestrates enrichment - scoped to interview-status apps only, never raises (per-app failures logged and skipped)
+- Enrichment only runs on `POST /insights/chat` after the 3-app minimum and rate-limit checks pass
+- 32 new tests in `tests/test_insights_v30.py`
+
+**OpenAPI spec**
+- 5 new routes documented in `api/openapi.yml` and `api-docs/openapi.yml`
+- 4 new schemas: `InterviewQuestion`, `InterviewPrep`, `UpdateInterviewQuestionRequest`, `PatternAlert`
+- 2 new tags: `Interview Prep`, `Alerts`
+
+### Infrastructure
+- New `interviewPrepLambda` (ARM64, Python 3.12, 512MB, 60s timeout, shared layer)
+- Bedrock IAM policy attached to `interviewPrepLambda` (same as `insightsLambda`)
+- `InterviewPrepLambdaErrorAlarm` CloudWatch alarm
+- `interviewPrepLambda` added to CloudWatch dashboard invocations and errors widgets
+- 2 new API Gateway routes on `settingsLambda` for alerts (no new Lambda)
+- 3 new API Gateway routes on `interviewPrepLambda`
+- Total API routes: 20 (up from 15)
+
+### DynamoDB
+- `INTERVIEW_PREP` entity: `PK=APP#{appId}`, `SK=PREP#v1`
+- `ALERT` entity: `PK=USER#{userId}`, `SK=ALERT#{timestamp}#{alertId}`, 30-day TTL
+
+### Tests
+- Backend: 410 total (up from 237) - 173 new tests across 4 files
+- `tests/test_interview_prep.py` - 40 new tests
+- `tests/test_digest.py` - 21 new tests (54 total)
+- `tests/test_settings.py` - 18 new tests (47 total)
+- `tests/test_insights_v30.py` - 32 new tests
+
+### Bug fix (pre-v3.0)
+- `AuthModal.tsx` Terms and Privacy links changed from `<a href>` to `<Link to>` - bare href bypassed React Router basename and broke navigation on GitHub Pages
+
+---
+
+## [2.3.0] - 2026-07-05
+
+### Added
+- **Public landing page** at the root URL, replacing the direct route to the login screen. Live at https://hardikjp7.com/applytic. Sections:
+  - Hero with split layout, particle canvas, animated dashboard mockup, and floating AI insight / resume comparison cards
+  - Feature showcase - 9 features with professional SVG icons
+  - How it works - horizontal 4-step flow with icon boxes, numbered badges, and connecting lines
+  - Track / Analyze / Coach deep-dive sections with real UI mocks
+  - About section with the actual story behind why Applytic was built
+  - FAQ - 7 accurate questions about the stack and how it works
+  - Footer with all real links, no placeholder hrefs
+- **Google sign-in** via Cognito Hosted UI, alongside existing email/password. Both paths give the same features. Google sign-in users get their email SES-verified automatically for the Monday digest via the Post Authentication Cognito trigger
+- **Custom auth UI** - Amplify's default form replaced with a custom modal matching the landing page design. Handles login, signup, email confirmation, forgot password, and password reset. Opens as a modal overlay on the landing page from a CTA, or renders full-page on direct navigation / hard refresh
+- Authenticated users clicking any landing page CTA are redirected straight to `/dashboard` instead of seeing the auth modal
+- **Privacy Policy and Terms of Service** pages - real, accurate coverage of what data is collected, how it's stored, and user rights. Linked from the footer and the signup form
+
+### Changed
+- **Routing restructure**:
+  - Landing page moved to `/`
+  - Dashboard moved to `/dashboard`
+  - All other app routes (`/board`, `/analytics`, `/coach`, `/resumes`) unchanged
+  - `/auth/callback` added to handle the OAuth redirect from Cognito Hosted UI
+  - `/privacy` and `/terms` added as public routes
+
+### Infrastructure
+- Requires one manual step before CDK deploy - creating the Google OAuth secret in Secrets Manager:
+  ```bash
+  aws secretsmanager create-secret \
+    --name applytic/google-oauth \
+    --secret-string '{"client_id":"YOUR_ID","client_secret":"YOUR_SECRET"}'
+  ```
+
+---
+
+## [2.2.0] - 2026-06-24
+
+Theme: make the API a first-class citizen, strengthen data traceability ahead of v3.0's interview prep and rejection pattern features, and fix two production bugs found on the live custom domain deployment.
+
+### Added
+- **OpenAPI 3.0 spec** for all 15 API routes (`api/openapi.yml`), modeled directly from the Pydantic request models and actual Lambda response shapes - applications CRUD, status transitions, notes timeline, resumes, insights/chat, and settings
+- **Hosted API docs** - browsable Swagger UI at `/api/docs` on the CloudFront deployment, auto-deployed on every push to `main`
+- **Resume version dropdown** - the Add/Edit application forms now pull resume versions from `GET /resumes/list` (actual S3 uploads) instead of free text, closing the gap between what's tracked and what's actually on file
+- **Stale value protection** - if an application references a resume version no longer in S3 (deleted, or free-typed before this release), it's preserved and shown as a disabled, flagged option rather than silently dropped
+- CI now validates the OpenAPI spec on every push/PR
+
+### Fixed
+- **SPA hard-refresh routing** - refreshing any non-root route (e.g. `/board`, `/analytics`, `/coach`) on the GitHub Pages / custom domain deployment dropped the `/applytic` base path from the URL and rendered a blank page. The GitHub Pages SPA redirect trick (`404.html` + `index.html`) now stores and restores the *full* original path instead of a base-stripped fragment that had nothing to restore the base from
+- **Unauthenticated deep links** - as a consequence of the routing fix, an unauthenticated user hitting a deep link (e.g. `/applytic/board`) now correctly sees the login screen and is returned to that exact page after signing in
+- **Login box centering** - the Amplify Authenticator login form was stuck at the top of the page instead of being vertically centered, a known upstream `@aws-amplify/ui-react` issue. Added an explicit flex-center override
+
+### Changed
+- Corrected documentation: the API actually has 15 routes, not 9 as previously stated in the roadmap (the smaller count predated v2.0's notes/settings additions)
+- Default `resumeVersion` on new applications changed from `'v1'` to empty, forcing an explicit, traceable selection
+
+### Scope Notes
+- The OpenAPI spec is documentation-only in this release - no runtime request/response validation is enforced against it. Pydantic remains the source of truth for actual input validation
+- API docs are hosted on the AWS/CloudFront deployment only, not on the GitHub Pages mirror
+
+---
+
+## [2.1.0] - 2026-06-19
+
+### Added
+- React Query (`@tanstack/react-query`) replacing useState + manual fetch for `useApplications`, `useSettings`, `useNotes` - automatic cache invalidation, background refetch, built-in loading/error state
+- Optimistic UI on kanban drag - card moves instantly, automatically reverts with a toast if the status update fails
+- Keyboard shortcuts: `N` (new application), `Escape` (close open dialog), `?` (shortcuts help overlay)
+- New `ShortcutsHelpModal` component
+- Per-column kanban pagination - columns beyond 20 cards show a "Show more" button instead of rendering everything at once
+- Analytics: application funnel chart (applied → screened → interview → offer) with per-stage conversion rates
+- Analytics: response rate trend line over the last 8 completed weeks
+- Analytics: status history stacked bar chart showing weekly application status distribution
+- 30 new backend tests (`test_insights_v21.py`), 9 new frontend tests (shortcuts + pagination)
+
+### Fixed
+- `followUpDate` field now rendered in `AddApplicationModal` (was in form state but missing from the UI)
+- Dark mode kanban card left-border colors no longer overridden by the generic dark border rule
+- Unhandled promise rejections in `Dashboard.tsx` and `ApplicationDetailModal.tsx` after the React Query migration (mutateAsync rethrows on error; wrapped in try/catch)
+
+### Changed
+- `insights/handler.py`: `compute_patterns()` now also returns `funnel`, `responseRateTimeSeries`, `statusHistory`
+- `types/index.ts`: added `FunnelStage`, `ResponseRatePoint`, `StatusHistoryPoint`
+- Test suite: 237 backend tests, 23 frontend tests (up from 207 / 14)
+
+### Infrastructure
+- No CDK/IAM changes - Lambda code only, requires `cdk deploy` after merge (no layer rebuild needed)
+
+---
+
 ## [2.0.0] - 2026-05-26
 
 ### Added
