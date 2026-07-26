@@ -134,10 +134,13 @@ export const updateInterviewQuestion = async (
   await api.put(`/applications/${appId}/interview-prep/${questionId}`, data)
 }
 
-// v3.0: Rejection pattern alert - written by digest Lambda, read/dismissed via settings Lambda
-export interface PatternAlert {
-  alertId: string
-  message: string
-  dismissed: boolean
-  createdAt: string
+// v3.0: Rejection pattern alerts
+
+export const getAlerts = async (): Promise<PatternAlert[]> => {
+  const res = await api.get('/users/alerts')
+  return res.data.alerts
+}
+
+export const dismissAlert = async (alertId: string): Promise<void> => {
+  await api.put(`/users/alerts/${alertId}/dismiss`)
 }
