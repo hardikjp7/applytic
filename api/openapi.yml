@@ -348,9 +348,9 @@ paths:
                 type: object
                 properties:
                   prep:
-                    oneOf:
+                    allOf:
                       - $ref: '#/components/schemas/InterviewPrep'
-                      - type: 'null'
+                    nullable: true
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -689,6 +689,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    BadRequest:
+      description: Malformed or invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     ValidationError:
       description: Request body failed Pydantic validation
       content:
