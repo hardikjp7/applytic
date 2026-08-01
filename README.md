@@ -13,7 +13,7 @@
   <img src="applytic.gif" alt="Applytic Demo GIF" width="800"/>
 </p>
 
-Applytic tracks every job application you submit, detects patterns across rejections (which resume version converts best, which source channel works, which company sizes respond), and uses Amazon Bedrock to turn that data into actionable coaching - delivered as a chat interface and a weekly email digest.
+Applytic tracks every job application you submit, detects patterns across rejections (which resume version converts best, which source channel works, which company sizes respond), and uses Amazon Bedrock to turn that data into actionable coaching - delivered as a chat interface, tailored interview prep, rejection pattern alerts, and a weekly email digest.
 
 Built end-to-end on AWS as a production-grade application. Every service is serverless, infrastructure is code, and every push auto-deploys via GitHub Actions.
 
@@ -65,6 +65,18 @@ So I instrumented my own job search. Every application became a data point. Afte
 - Markdown rendering in chat responses
 - Weekly email digest every Monday with stats + one AI-generated personalised tip
 
+**Interview prep**
+- Generate 10 tailored interview questions per application using the job description URL and Amazon Nova Lite
+- Check off questions as you practice them and save your answer notes
+- Regenerate questions any time - only visible for applications in Interview or Offer status
+- Questions stored per application and persist across sessions
+
+**Rejection pattern alerts**
+- Automatic pattern detection runs every Monday alongside the weekly digest
+- Detects: resume version with 0% response rate after 5+ applications, source channel with 0% response after 5+ applications, response rate dropping more than 20 points week-over-week
+- Amber alert banners on the Dashboard - dismiss with one click
+- Alerts also appear in the weekly digest email
+
 **Resume version tracker**
 - Upload multiple PDF versions to S3 via presigned URLs
 - Tag each application with which version was used
@@ -111,10 +123,11 @@ Service    :  API Gateway (REST)
 Authorizer :  Cognito JWT (applied to all routes)
 
 Routes
-  /applications    →  applytic-applications Lambda
-  /insights        →  applytic-insights Lambda
-  /settings        →  applytic-settings Lambda
-  /notes           →  applytic-notes Lambda
+  /applications        →  applytic-applications Lambda
+  /insights            →  applytic-insights Lambda
+  /settings + /alerts  →  applytic-settings Lambda
+  /notes               →  applytic-notes Lambda
+  /interview-prep      →  applytic-interview-prep Lambda
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -135,7 +148,16 @@ Routes
 │  • Weekly goal config       │  │  • Per-application notes    │
 │  • Streak tracking logic    │  │  • Timeline ordered queries │
 │  • User preferences CRUD    │  │  • Create / edit / delete   │
+│  • Rejection alert routes   │  │                              │
 └─────────────────────────────┘  └─────────────────────────────┘
+
+┌─────────────────────────────┐
+│  applytic-interview-prep    │
+│  ─────────────────────────  │
+│  • Bedrock question gen     │
+│  • JD URL fetch + strip     │
+│  • PREP#v1 entity CRUD      │
+└─────────────────────────────┘
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -149,7 +171,8 @@ Trigger    :  Amazon EventBridge (cron schedules)
 │  ─────────────────────────  │  │  ─────────────────────────   │
 │  • Weekly summary via       │  │  • Overdue follow-up detect  │
 │    Bedrock                  │  │  • Per-application reminders │
-│  • SES email delivery       │  │  • SES email delivery        │
+│  • Rejection pattern detect │  │  • SES email delivery        │
+│  • SES email delivery       │  │                               │
 └─────────────────────────────┘  └──────────────────────────────┘
 
 
@@ -159,7 +182,7 @@ Trigger    :  Amazon EventBridge (cron schedules)
 
 DynamoDB (table: applytic)
   Design    :  Single-table
-  Entities  :  Applications · Notes · Settings · Users · Streaks
+  Entities  :  Applications · Notes · Settings · Users · Streaks · InterviewPrep · Alerts
   Index     :  GSI1 — userId partition key for all user queries
 
 S3 Resume Bucket
@@ -171,7 +194,7 @@ Amazon SES
   Usage     :  Email delivery for Digest + Follow-up Lambdas
 
 Amazon Bedrock
-  Usage     :  AI chat (insights), weekly digest generation, pattern analysis
+  Usage     :  AI chat (insights), interview prep question generation, weekly digest generation, pattern analysis
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -360,6 +383,11 @@ GET    /v1/insights
 POST   /v1/insights/chat
 GET    /v1/users/settings
 PUT    /v1/users/settings
+POST   /v1/applications/{appId}/interview-prep/generate
+GET    /v1/applications/{appId}/interview-prep
+PUT    /v1/applications/{appId}/interview-prep/{questionId}
+GET    /v1/users/alerts
+PUT    /v1/users/alerts/{alertId}/dismiss
 ```
 
 All routes protected by Cognito JWT authorizer.
@@ -377,8 +405,8 @@ All routes protected by Cognito JWT authorizer.
 | Cost at 0 users | ~$0/month |
 | Cost at 100 users | ~$2-5/month |
 | Cost at 1,000 users | ~$15-30/month |
-| Backend test suite | 207 tests, 90.75% coverage |
-| Frontend test suite | 14 Vitest tests |
+| Backend test suite | 410 tests, 70% coverage threshold |
+| Frontend test suite | 31 Vitest tests |
 | Full CDK deploy from scratch | under 3 minutes |
 
 ---
@@ -387,8 +415,8 @@ All routes protected by Cognito JWT authorizer.
 
 ```
 push to main
-    ├── test (pytest 207 tests, 70% coverage threshold)
-    ├── test-frontend (vitest 14 tests)
+    ├── test (pytest 410 tests, 70% coverage threshold)
+    ├── test-frontend (vitest 31 tests)
     └── (both must pass before)
             ├── deploy-backend (cdk deploy)
             ├── deploy-frontend-aws (s3 sync + cloudfront invalidation)
@@ -462,95 +490,7 @@ cd scripts && python seed_data.py --user-id YOUR_COGNITO_SUB
 * **Issue:** Component-level `useState` was reset whenever the component unmounted.
 * **Fix:** Lifted message state to `App.tsx` and passed it down as props.
 
-### 6. GitHub Actions npm cache error
-
-* **Issue:** `cache: 'npm'` requires a `package-lock.json` file.
-* **Fix:** Removed the cache configuration and used `npm install`.
-
-### 7. `import.meta.env` TypeScript error in CI
-
-* **Issue:** Vite client types were not available during CI builds.
-* **Fix:** Added `"types": ["vite/client"]` to `tsconfig.json`.
-
-### 8. Bedrock model EOL
-
-* **Issue:** The selected Bedrock model reached AWS end-of-life during development.
-* **Fix:** Updated `BEDROCK_MODEL_ID` and used `aws logs tail` for debugging.
-
-### 9. Bedrock inference profile requirement
-
-* **Issue:** Claude 3.7+ models require cross-region inference profiles using a `us.` prefix.
-* **Fix:** Updated model configuration to use the correct inference profile identifier.
-
-### 10. IAM wildcard required for inference profiles
-
-* **Issue:** Foundation model ARNs did not cover inference profile ARNs.
-* **Fix:** Used `Resource: "*"` for Bedrock IAM permissions.
-
-### 11. AWS Marketplace subscription required
-
-* **Issue:** Claude 3.7 and Haiku 4.5 required an AWS Marketplace subscription.
-* **Fix:** Switched to Amazon Nova Lite.
-
-### 12. Amazon Nova request/response format differences
-
-* **Issue:** Nova models do not accept `anthropic_version` in the request payload.
-* **Fix:** Detected the model family from `MODEL_ID` and generated the appropriate payload format.
-
-### 13. Pie chart labels clipped
-
-* **Issue:** External labels overflowed the chart container.
-* **Fix:** Implemented a custom label renderer that draws percentage values inside slices at the midpoint radius.
-
-### 14. Digest Lambda missing Cognito permission
-
-* **Issue:** `cognito-idp:AdminGetUser` permission was missing from the IAM policy.
-* **Fix:** Added an IAM policy statement targeting the Cognito User Pool ARN.
-
-### 15. SES sandbox – recipient emails not verified
-
-* **Issue:** New AWS accounts in the SES sandbox can only send emails to verified recipient addresses.
-* **Fix:** Added a Cognito Post Confirmation trigger that automatically verifies newly registered user emails.
-
-### 16. GitHub Pages blank page after login
-
-* **Issue:** `BrowserRouter` defaulted to `/` while the application was hosted under `/applytic/`.
-* **Fix:** Passed `import.meta.env.BASE_URL` as the `basename` to `BrowserRouter`.
-
-### 17. Windows pip `--user` + `-t` conflict in `build_layer.sh`
-
-* **Issue:** Windows automatically added `--user`, which conflicts with pip's `-t` option.
-* **Fix:** Added the `--no-user` flag to the pip install command.
-
-### 18. CDK construct ID mismatch on redeploy
-
-* **Issue:** CloudFormation rejected deployment with a "Resource already exists" error.
-* **Fix:** Preserved the original construct IDs when updating existing alarms.
-
-### 19. Lambda ARM64 vs x86_64 architecture mismatch
-
-* **Issue:** `build_layer.sh` produced x86_64 wheels while Lambdas ran on ARM64, causing `pydantic_core` runtime failures.
-* **Fix:** Added `--platform manylinux2014_aarch64 --only-binary=:all:` to the pip install command.
-
-### 20. `parse_body` stub missing error handling in `test_insights.py`
-
-* **Issue:** The test stub crashed on invalid JSON input.
-* **Fix:** Replaced the lambda with a proper function that wraps `json.loads()` in a try/except block and returns HTTP 400 on failure. The stub is registered in `sys.modules` and reused by subsequent test files.
-
-### 21. `AddApplicationModal` missing `followUpDate` field
-
-* **Issue:** TypeScript builds failed after v2.0 introduced `followUpDate` to the `Application` type.
-* **Fix:** Added `followUpDate: null as string | null` to the `defaultForm` object.
-
-### 22. moto installation failure in CI
-
-* **Issue:** The shell interpreted brackets in `moto[dynamodb,...]` as glob expansion.
-* **Fix:** Wrapped the package name in quotes during installation.
-
-### 23. Vitest globals breaking `tsc` builds
-
-* **Issue:** `vi`, `beforeAll`, and `afterAll` were not available during standard TypeScript compilation.
-* **Fix:** Added `"exclude": ["src/test"]` to `frontend/tsconfig.json`.
+📋 Check out all the issues faced and solved: [Issues_Encountered_and_Fixed.md](Issues_Encountered_and_Fixed.md)
 
 ---
 
