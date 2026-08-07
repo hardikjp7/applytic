@@ -55,6 +55,32 @@ const FEATURES = [
   },
   {
     icon: (
+      // Clipboard with checkmark
+      <>
+        <path d="M9 2h6a2 2 0 0 1 2 2v1H7V4a2 2 0 0 1 2-2z"/>
+        <rect x="5" y="5" width="14" height="16" rx="2"/>
+        <path d="M9 11l2 2 4-4"/>
+      </>
+    ),
+    color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',
+    title: 'Interview prep',
+    desc: 'Generate 10 tailored interview questions from the job description with one click, powered by Amazon Nova Lite. Check them off as you practice and save your own answer notes.',
+  },
+  {
+    icon: (
+      // Warning triangle
+      <>
+        <path d="M12 2L1 21h22L12 2z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12" y2="17.01"/>
+      </>
+    ),
+    color: '#f87171', bg: 'rgba(248,113,113,0.1)',
+    title: 'Rejection pattern alerts',
+    desc: 'Every Monday, Applytic scans your data for dead resume versions, dead source channels, and dropping response rates - and flags them before you waste more applications on what isn\'t working.',
+  },
+  {
+    icon: (
       // Calendar with notification
       <>
         <rect x="3" y="4" width="18" height="18" rx="2"/>

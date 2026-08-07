@@ -14,7 +14,7 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'; // v2.3
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -101,13 +101,35 @@ export class ApplyticStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    // ─── v2.3: Google OAuth credentials from Secrets Manager ──────────────────
-    // Secret was pre-created via:
-    //   aws secretsmanager create-secret --name applytic/google-oauth \
-    //     --secret-string '{"client_id":"...","client_secret":"..."}'
-    // Never commit credentials - always read from Secrets Manager at deploy time.
-    const googleOAuthSecret = secretsmanager.Secret.fromSecretNameV2(
-      this, 'GoogleOAuthSecret', 'applytic/google-oauth'
+    // ─── v3.1 fix: Google OAuth credentials from SSM Parameter Store ─────────
+    // Migrated off Secrets Manager (Aug 2026) - Secrets Manager bills ~$0.40
+    // per secret per month regardless of usage, flagged by AWS Cost Anomaly
+    // Detection (~$0.013/day starting the secret's creation). These values
+    // are only read at CDK deploy time to configure the Cognito IdP - Cognito
+    // stores them internally afterward, so there is no ongoing runtime
+    // dependency needing rotation or Secrets-Manager-grade availability.
+    // SSM Standard-tier SecureString parameters are free at this volume.
+    // Parameters pre-created manually (see ROADMAP/knowledge file for the
+    // exact commands used, including the Git Bash MSYS_NO_PATHCONV=1 fix
+    // needed for leading-slash parameter names in Windows Git Bash):
+    //   aws ssm put-parameter --name "/applytic/google-oauth/client-id" \
+    //     --value "..." --type SecureString --tier Standard
+    //   aws ssm put-parameter --name "/applytic/google-oauth/client-secret" \
+    //     --value "..." --type SecureString --tier Standard
+    // Both created as Version 1 - pinned explicitly below so CDK's synth-time
+    // SSM lookup resolves deterministically rather than always reading
+    // "latest", which is the documented safe pattern for SecureString params.
+    const googleClientIdParam = ssm.StringParameter.fromSecureStringParameterAttributes(
+      this, 'GoogleClientIdParam', {
+        parameterName: '/applytic/google-oauth/client-id',
+        version: 1,
+      }
+    );
+    const googleClientSecretParam = ssm.StringParameter.fromSecureStringParameterAttributes(
+      this, 'GoogleClientSecretParam', {
+        parameterName: '/applytic/google-oauth/client-secret',
+        version: 1,
+      }
     );
 
     // ─── v2.3: Google Identity Provider ───────────────────────────────────────
@@ -116,8 +138,8 @@ export class ApplyticStack extends cdk.Stack {
     // client_secret is passed as SecretValue and never appears in plain text.
     const googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, 'GoogleProvider', {
       userPool,
-      clientId: googleOAuthSecret.secretValueFromJson('client_id').unsafeUnwrap(),
-      clientSecretValue: googleOAuthSecret.secretValueFromJson('client_secret'),
+      clientId: googleClientIdParam.stringValue,
+      clientSecretValue: cdk.SecretValue.unsafePlainText(googleClientSecretParam.stringValue),
       scopes: ['email', 'profile', 'openid'],
       attributeMapping: {
         email: cognito.ProviderAttribute.GOOGLE_EMAIL,

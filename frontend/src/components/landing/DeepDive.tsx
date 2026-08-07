@@ -192,6 +192,84 @@ function AnalyzeSection() {
   )
 }
 
+// ── Prep & Alerts ────────────────────────────────────────────────────────────
+function PrepSection() {
+  return (
+    <div className="grid lg:grid-cols-2 gap-16 items-center">
+
+      {/* Visual - left */}
+      <div className="land-reveal slide-left order-2 lg:order-1">
+        <div className="land-grad-border">
+          <div className="land-dash-card p-6 rounded-2xl">
+            <div className="text-xs text-gray-500 mb-1">Interview Prep</div>
+            <div className="font-bold text-white mb-4" style={{ fontFamily: 'Syne, sans-serif' }}>
+              Notion - Senior Engineer
+            </div>
+            <div className="space-y-2.5 mb-5">
+              {[
+                { q: 'Walk me through a time you had to debug a production issue under pressure.', done: true },
+                { q: 'Why are you interested in joining Notion specifically?', done: true },
+                { q: 'How do you approach designing a system that needs to scale?', done: false },
+              ].map((item, i) => (
+                <div key={i} className="flex items-start gap-2.5 text-xs">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                       stroke={item.done ? '#4ade80' : '#4b5563'} strokeWidth="2.5"
+                       className="mt-0.5 flex-shrink-0">
+                    {item.done
+                      ? <><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></>
+                      : <circle cx="12" cy="12" r="9"/>}
+                  </svg>
+                  <span className={item.done ? 'text-gray-400 line-through' : 'text-gray-300'}>{item.q}</span>
+                </div>
+              ))}
+            </div>
+            {/* Alert mockup */}
+            <div className="p-3 rounded-xl flex items-start gap-2.5"
+                 style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2.5"
+                   className="mt-0.5 flex-shrink-0">
+                <path d="M12 2L1 21h22L12 2z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12" y2="17.01"/>
+              </svg>
+              <p className="text-xs text-amber-200/90">
+                Your <span className="font-semibold">v1-generic</span> resume has a 0% response rate across 5 applications.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Text - right */}
+      <div className="land-reveal slide-right order-1 lg:order-2 space-y-6">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs"
+             style={{ background: 'rgba(244,114,182,0.08)', color: '#f472b6', border: '1px solid rgba(244,114,182,0.2)' }}>
+          Prepare
+        </div>
+        <h2 className="text-3xl lg:text-4xl font-bold text-white leading-tight"
+            style={{ fontFamily: 'Syne, sans-serif' }}>
+          Walk into interviews ready. Catch bad patterns early.
+        </h2>
+        <p className="text-gray-400 leading-relaxed">
+          The moment an application reaches interview stage, generate 10 tailored questions from the
+          job description. And every Monday, Applytic scans your pipeline for resume versions and
+          source channels that have stopped converting, so you stop wasting applications on what isn't working.
+        </p>
+        <ul className="space-y-3">
+          {[
+            'AI-generated questions from the actual job description',
+            'Track practiced questions and save your own answers',
+            'Weekly alerts on dead resumes, channels, and dropping response rates',
+          ].map(t => (
+            <li key={t} className="flex items-center gap-3 text-sm text-gray-300">
+              <Check color="#f472b6" />{t}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+
 // ── Coach ──────────────────────────────────────────────────────────────────────
 function CoachSection() {
   const AIIcon = () => (
@@ -206,8 +284,8 @@ function CoachSection() {
   return (
     <div className="grid lg:grid-cols-2 gap-16 items-center">
 
-      {/* Visual - left */}
-      <div className="land-reveal slide-left order-2 lg:order-1">
+      {/* Visual - right */}
+      <div className="land-reveal slide-left order-2 lg:order-2">
         <div className="land-grad-border">
           <div className="land-dash-card p-6 rounded-2xl">
             {/* Header */}
@@ -278,8 +356,8 @@ function CoachSection() {
         </div>
       </div>
 
-      {/* Text - right */}
-      <div className="land-reveal slide-right order-1 lg:order-2 space-y-6">
+      {/* Text - left */}
+      <div className="land-reveal slide-right order-1 lg:order-1 space-y-6">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs"
              style={{ background: 'rgba(167,139,250,0.08)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.2)' }}>
           Coach
@@ -318,6 +396,7 @@ export default function DeepDive() {
       <div className="max-w-6xl mx-auto space-y-32">
         <TrackSection />
         <AnalyzeSection />
+        <PrepSection />
         <CoachSection />
       </div>
     </section>

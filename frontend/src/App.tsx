@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { fetchAuthSession } from 'aws-amplify/auth'
 import { Hub } from 'aws-amplify/utils'
@@ -10,15 +10,49 @@ import { queryClient } from './lib/queryClient'
 
 import Sidebar from './components/layout/Sidebar'
 import ErrorBoundary from './components/layout/ErrorBoundary'
-import Dashboard from './pages/Dashboard'
-import KanbanBoard from './components/kanban/KanbanBoard'
-import AnalyticsDashboard from './components/analytics/AnalyticsDashboard'
-import CoachChat from './components/chat/CoachChat'
-import ResumeUpload from './components/resume/ResumeUpload'
-import Landing from './pages/Landing'
-import AuthModal from './components/landing/AuthModal'
-import PrivacyPolicy from './pages/PrivacyPolicy'   // v2.3 Session 5
-import Terms from './pages/Terms'                   // v2.3 Session 5
+
+// v3.1 fix Session 7: route-level code splitting. Each of these previously
+// bundled into the single index chunk regardless of which route the user
+// visited, pushing it past 500kB (Vite build warning). React.lazy() makes
+// Rollup emit each as its own chunk, loaded only when its route is hit.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const KanbanBoard = lazy(() => import('./components/kanban/KanbanBoard'))
+const AnalyticsDashboard = lazy(() => import('./components/analytics/AnalyticsDashboard'))
+const CoachChat = lazy(() => import('./components/chat/CoachChat'))
+const ResumeUpload = lazy(() => import('./components/resume/ResumeUpload'))
+const Landing = lazy(() => import('./pages/Landing'))
+const AuthModal = lazy(() => import('./components/landing/AuthModal'))
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))   // v2.3 Session 5
+const Terms = lazy(() => import('./pages/Terms'))                   // v2.3 Session 5
+
+// v3.1 fix Session 7: fallback UI shown while a lazy route chunk downloads.
+// Full-page variant for Root-level routes (Landing/Auth/Privacy/Terms) where
+// nothing else is on screen yet; content variant for AppShell routes where
+// the sidebar and header are already visible and only the main area is loading.
+function PageLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="w-8 h-8 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+}
+
+function ContentLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center py-24">
+      <div className="w-6 h-6 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+}
+
+function ModalLoadingFallback() {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center"
+         style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}>
+      <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+}
 
 export interface Message {
   role: 'user' | 'assistant'
@@ -153,6 +187,7 @@ function AppShell({
   setChatHistory: React.Dispatch<React.SetStateAction<Message[]>>
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const location = useLocation()
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
@@ -187,17 +222,19 @@ function AppShell({
         </div>
 
         <main className="flex-1 overflow-y-auto">
-          <ErrorBoundary>
-            <Routes>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/board"     element={<KanbanBoard />} />
-              <Route path="/analytics" element={<AnalyticsDashboard />} />
-              <Route path="/coach"     element={
-                <CoachChat messages={chatHistory} setMessages={setChatHistory} />
-              } />
-              <Route path="/resumes"   element={<ResumeUpload />} />
-              <Route path="*"          element={<Navigate to="/dashboard" replace />} />
-            </Routes>
+          <ErrorBoundary key={location.pathname}>
+            <Suspense fallback={<ContentLoadingFallback />}>
+              <Routes>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/board"     element={<KanbanBoard />} />
+                <Route path="/analytics" element={<AnalyticsDashboard />} />
+                <Route path="/coach"     element={
+                  <CoachChat messages={chatHistory} setMessages={setChatHistory} />
+                } />
+                <Route path="/resumes"   element={<ResumeUpload />} />
+                <Route path="*"          element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>
@@ -218,37 +255,41 @@ function Root() {
 
   return (
     <>
-      <Routes location={backgroundLocation ?? location}>
-        {/* Public routes - no auth required */}
-        <Route path="/"              element={<Landing />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
-        <Route path="/login"         element={<AuthModal initialView="login"  isModal={false} />} />
-        <Route path="/signup"        element={<AuthModal initialView="signup" isModal={false} />} />
-        <Route path="/privacy"       element={<PrivacyPolicy />} />   {/* v2.3 Session 5 */}
-        <Route path="/terms"         element={<Terms />} />           {/* v2.3 Session 5 */}
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes location={backgroundLocation ?? location}>
+          {/* Public routes - no auth required */}
+          <Route path="/"              element={<Landing />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/login"         element={<AuthModal initialView="login"  isModal={false} />} />
+          <Route path="/signup"        element={<AuthModal initialView="signup" isModal={false} />} />
+          <Route path="/privacy"       element={<PrivacyPolicy />} />   {/* v2.3 Session 5 */}
+          <Route path="/terms"         element={<Terms />} />           {/* v2.3 Session 5 */}
 
-        {/* Protected routes */}
-        <Route element={<RequireAuth />}>
-          <Route
-            path="/*"
-            element={
-              <AppShell
-                theme={theme}
-                toggleTheme={toggleTheme}
-                chatHistory={chatHistory}
-                setChatHistory={setChatHistory}
-              />
-            }
-          />
-        </Route>
-      </Routes>
+          {/* Protected routes */}
+          <Route element={<RequireAuth />}>
+            <Route
+              path="/*"
+              element={
+                <AppShell
+                  theme={theme}
+                  toggleTheme={toggleTheme}
+                  chatHistory={chatHistory}
+                  setChatHistory={setChatHistory}
+                />
+              }
+            />
+          </Route>
+        </Routes>
+      </Suspense>
 
       {/* Modal overlay - only when backgroundLocation is set */}
       {backgroundLocation && (
-        <Routes>
-          <Route path="/login"  element={<AuthModal initialView="login"  isModal={true} />} />
-          <Route path="/signup" element={<AuthModal initialView="signup" isModal={true} />} />
-        </Routes>
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <Routes>
+            <Route path="/login"  element={<AuthModal initialView="login"  isModal={true} />} />
+            <Route path="/signup" element={<AuthModal initialView="signup" isModal={true} />} />
+          </Routes>
+        </Suspense>
       )}
     </>
   )

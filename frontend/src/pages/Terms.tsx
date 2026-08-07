@@ -1,5 +1,7 @@
 // Terms of Service page - linked from footer and signup form, public route.
 
+import { Link } from 'react-router-dom'
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-10">
@@ -19,7 +21,7 @@ export default function Terms() {
     <div style={{ background: '#0a0a0f', minHeight: '100vh', color: '#f9fafb', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
       {/* Minimal nav */}
       <div className="border-b border-white/5 px-6 py-4">
-        <a href="/" className="flex items-center gap-2.5 w-fit">
+        <Link to="/" className="flex items-center gap-2.5 w-fit">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                style={{ background: '#534ab7' }}>
             <span className="text-white font-bold text-sm leading-none">A</span>
@@ -27,7 +29,7 @@ export default function Terms() {
           <span className="text-white font-semibold" style={{ fontFamily: 'Syne, sans-serif' }}>
             applytic
           </span>
-        </a>
+        </Link>
       </div>
 
       <div className="max-w-2xl mx-auto px-6 py-16">
@@ -145,9 +147,9 @@ export default function Terms() {
         </Section>
 
         <div className="pt-8 border-t border-white/5 text-xs text-gray-600">
-          <a href="/" className="text-gray-500 hover:text-indigo-400 transition-colors">
+          <Link to="/" className="text-gray-500 hover:text-indigo-400 transition-colors">
             &larr; Back to Applytic
-          </a>
+          </Link>
         </div>
       </div>
     </div>

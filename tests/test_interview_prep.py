@@ -214,6 +214,25 @@ class TestStripHtml:
     def test_plain_text_unchanged(self):
         assert _strip_html("No tags here") == "No tags here"
 
+    def test_strips_malformed_script_close_tag_with_attributes(self):
+        # This is the exact bypass CodeQL's py/bad-tag-filter flagged the old
+        # regex for - a close tag with trailing attributes that regex-based
+        # matching would not recognize as closing the script block.
+        result = _strip_html('<script>alert(1)</script foo="bar"><p>Safe</p>')
+        assert "alert" not in result
+        assert "Safe" in result
+
+    def test_strips_script_regardless_of_tag_case(self):
+        result = _strip_html("<SCRIPT>alert(1)</SCRIPT><p>Safe</p>")
+        assert "alert" not in result
+        assert "Safe" in result
+
+    def test_handles_unterminated_script_tag_safely(self):
+        # Truncated JD fetch could leave a script tag unclosed - must not
+        # leak the remaining raw markup into the extracted text.
+        result = _strip_html("<script>var x = 1;<p>Should not appear</p>")
+        assert "Should not appear" not in result
+
 
 # ── Tests: fetch_job_description ──────────────────────────────────────────────
 

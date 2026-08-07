@@ -30,6 +30,14 @@ const FAQS = [
     q: 'How does the AI chat rate limiting work?',
     a: 'Each user gets 20 AI Coach messages per day. The counter resets at midnight UTC and is stored in DynamoDB with a TTL so the record auto-expires after 2 days. This keeps Bedrock costs predictable at zero direct charge to users.',
   },
+  {
+    q: 'How does interview prep work?',
+    a: 'Once an application reaches Interview or Offer status, you can generate interview questions from its detail view. Applytic fetches the job description URL you attached, passes the role, company, and job description text to Amazon Nova Lite, and generates 10 tailored questions. You can check off ones you\'ve practiced and save your own answer notes - everything is stored per application and persists across sessions. You can regenerate a fresh set any time.',
+  },
+  {
+    q: 'What are rejection pattern alerts?',
+    a: 'Every Monday, alongside the weekly digest, Applytic checks your data for three patterns: a resume version with a 0% response rate after 5+ applications, a source channel with a 0% response rate after 5+ applications, and a response rate that dropped more than 20 percentage points week over week. If any of those fire, you get an amber banner on the Dashboard (dismissible) and a section in the digest email - so you catch what\'s not working before you keep repeating it.',
+  }
 ]
 
 export default function FAQ() {
