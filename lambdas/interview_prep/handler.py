@@ -31,6 +31,7 @@ import json
 import os
 import re
 import uuid
+from html.parser import HTMLParser
 from urllib import request as urllib_request
 from urllib.error import URLError
 
@@ -84,16 +85,57 @@ def verify_application_owner(user_id: str, app_id: str) -> Optional[dict]:
     )
     return result.get("Item")
 
+class _TextExtractor(HTMLParser):
+    """
+    Extracts visible text from HTML, dropping script/style content entirely.
+    Uses stdlib's tokenizing parser instead of regex - CodeQL flagged the old
+    regex approach (py/bad-tag-filter) because <(script|style)[^>]*>.*?</...>
+    does not match malformed-but-browser-accepted close tags such as
+    </script foo="bar">.
+    """
+    _SKIP_TAGS = {"script", "style"}
+
+    def __init__(self):
+        super().__init__()
+        # HTMLParser's default CDATA mode for script/style only recognizes a
+        # literal "</script>" (no attributes) as the end tag - a malformed
+        # close tag like </script foo="bar"> would never match, causing the
+        # parser to silently swallow everything after it as "script content".
+        # Disabling CDATA mode and tracking skip state via normal start/end
+        # tag events lets the parser's tolerant end-tag matching (which does
+        # accept trailing attributes, whitespace, and mixed case) do the work.
+        self.CDATA_CONTENT_ELEMENTS = ()
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts)
+
 
 def _strip_html(raw: str) -> str:
-    """Minimal HTML tag stripping - no external deps."""
-    # Remove script/style blocks first
-    raw = re.sub(r"<(script|style)[^>]*>.*?</(script|style)>", " ", raw, flags=re.DOTALL | re.IGNORECASE)
-    # Remove all remaining tags
-    raw = re.sub(r"<[^>]+>", " ", raw)
-    # Collapse whitespace
-    raw = re.sub(r"\s+", " ", raw).strip()
-    return raw
+    """Strip HTML tags and script/style content, collapse whitespace."""
+    if not raw:
+        return ""
+    parser = _TextExtractor()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except Exception:
+        logger.warning("HTML parsing failed - returning partial text")
+    collapsed = re.sub(r"\s+", " ", parser.get_text())
+    return collapsed.strip()
 
 
 @tracer.capture_method

@@ -52,13 +52,29 @@ const STEPS = [
     iconColor: '#4ade80',
     iconBg: 'rgba(74,222,128,0.1)',
     badgeColor: '#22c55e',
-    connectorColor: '',
+    connectorColor: 'rgba(74,222,128,0.5)',
     icon: (
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
     ),
     title: 'Ask your AI coach',
     desc: 'Chat with a coach that has read every row. Ask "which resume is converting best?" or "why am I getting ghosted after screening?" and get a data-specific answer.',
     hint: 'Powered by Amazon Nova Lite',
+  },
+  {
+    n: 5,
+    iconColor: '#f472b6',
+    iconBg: 'rgba(244,114,182,0.12)',
+    badgeColor: '#ec4899',
+    connectorColor: '',
+    icon: (
+      <>
+        <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z"/>
+        <path d="M19 15l.75 2.25L22 18l-2.25.75L19 21l-.75-2.25L16 18l2.25-.75L19 15z"/>
+      </>
+    ),
+    title: 'Prep, then stay ahead',
+    desc: 'Generate interview questions the moment an application reaches interview stage. Every Monday, pattern alerts flag resume versions or channels that have stopped converting - before you keep applying the same losing way.',
+    hint: 'Interview prep  weekly alerts',
   },
 ]
 
