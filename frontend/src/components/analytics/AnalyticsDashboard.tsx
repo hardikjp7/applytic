@@ -74,7 +74,7 @@ export default function AnalyticsDashboard() {
     </div>
   )
 
-  if (!patterns || patterns.summary.total === 0) return (
+  if (!patterns || !patterns.summary || patterns.summary.total === 0) return (
     <div className="p-4 lg:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Analytics</h1>
