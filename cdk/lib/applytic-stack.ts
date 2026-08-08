@@ -14,7 +14,7 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
-import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -109,28 +109,59 @@ export class ApplyticStack extends cdk.Stack {
     // stores them internally afterward, so there is no ongoing runtime
     // dependency needing rotation or Secrets-Manager-grade availability.
     // SSM Standard-tier SecureString parameters are free at this volume.
-    // Parameters pre-created manually (see ROADMAP/knowledge file for the
-    // exact commands used, including the Git Bash MSYS_NO_PATHCONV=1 fix
-    // needed for leading-slash parameter names in Windows Git Bash):
+    // Parameters pre-created manually:
     //   aws ssm put-parameter --name "/applytic/google-oauth/client-id" \
     //     --value "..." --type SecureString --tier Standard
     //   aws ssm put-parameter --name "/applytic/google-oauth/client-secret" \
     //     --value "..." --type SecureString --tier Standard
-    // Both created as Version 1 - pinned explicitly below so CDK's synth-time
-    // SSM lookup resolves deterministically rather than always reading
-    // "latest", which is the documented safe pattern for SecureString params.
-    const googleClientIdParam = ssm.StringParameter.fromSecureStringParameterAttributes(
-      this, 'GoogleClientIdParam', {
-        parameterName: '/applytic/google-oauth/client-id',
-        version: 1,
-      }
-    );
-    const googleClientSecretParam = ssm.StringParameter.fromSecureStringParameterAttributes(
-      this, 'GoogleClientSecretParam', {
-        parameterName: '/applytic/google-oauth/client-secret',
-        version: 1,
-      }
-    );
+    //
+    // NOTE: ssm.StringParameter.fromSecureStringParameterAttributes() was
+    // tried first and works fine for many resource types, but CloudFormation
+    // does not support {{resolve:ssm-secure:...}} dynamic references on
+    // AWS::Cognito::UserPoolIdentityProvider's ProviderDetails property -
+    // deploy failed with "SSM Secure reference is not supported in:
+    // .../ProviderDetails/client_secret,.../client_id". Dynamic references
+    // are only supported on a CFN-defined allowlist of resource properties,
+    // and Cognito identity providers aren't on it (Secrets Manager dynamic
+    // references happen to have broader property support, which is why the
+    // original Secrets Manager approach worked here).
+    // Fix: use AwsCustomResource to call ssm:GetParameter (with decryption)
+    // via a CDK-managed Lambda during deploy, and consume the *already
+    // resolved* value via Fn::GetAtt - which has no such restriction, since
+    // it's a plain CFN intrinsic rather than an unresolved dynamic reference.
+    const googleClientIdLookup = new cr.AwsCustomResource(this, 'GoogleClientIdLookup', {
+      onUpdate: {
+        service: 'SSM',
+        action: 'GetParameter',
+        parameters: {
+          Name: '/applytic/google-oauth/client-id',
+          WithDecryption: true,
+        },
+        // Forces the Lambda to re-fetch on every deploy rather than caching
+        // the first-ever result forever, in case the parameter is rotated.
+        physicalResourceId: cr.PhysicalResourceId.of(`GoogleClientIdLookup-${this.node.addr}`),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/applytic/google-oauth/client-id`],
+      }),
+    });
+    const googleClientId = googleClientIdLookup.getResponseField('Parameter.Value');
+
+    const googleClientSecretLookup = new cr.AwsCustomResource(this, 'GoogleClientSecretLookup', {
+      onUpdate: {
+        service: 'SSM',
+        action: 'GetParameter',
+        parameters: {
+          Name: '/applytic/google-oauth/client-secret',
+          WithDecryption: true,
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(`GoogleClientSecretLookup-${this.node.addr}`),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/applytic/google-oauth/client-secret`],
+      }),
+    });
+    const googleClientSecret = googleClientSecretLookup.getResponseField('Parameter.Value');
 
     // ─── v2.3: Google Identity Provider ───────────────────────────────────────
     // client_id is not truly secret (appears in OAuth redirect URLs) so
@@ -138,8 +169,8 @@ export class ApplyticStack extends cdk.Stack {
     // client_secret is passed as SecretValue and never appears in plain text.
     const googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, 'GoogleProvider', {
       userPool,
-      clientId: googleClientIdParam.stringValue,
-      clientSecretValue: cdk.SecretValue.unsafePlainText(googleClientSecretParam.stringValue),
+      clientId: googleClientId,
+      clientSecretValue: cdk.SecretValue.unsafePlainText(googleClientSecret),
       scopes: ['email', 'profile', 'openid'],
       attributeMapping: {
         email: cognito.ProviderAttribute.GOOGLE_EMAIL,
