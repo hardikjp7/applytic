@@ -238,6 +238,73 @@ def _compute_status_history(apps: list) -> list:
 
     return result
 
+# ── v3.1: salary insights ──────────────────────────────────────────────────────
+
+SALARY_BUCKET_SIZE = 20000
+
+
+def _compute_salary_distribution(apps: list) -> list:
+    """
+    Buckets applications by expectedSalary into $20k ranges.
+    Apps without expectedSalary are excluded entirely - this is a distribution
+    of stated expectations, not a count of all applications.
+
+    Returns list of {range, count}, sorted ascending by bucket start.
+    """
+    with_salary = [a for a in apps if a.get("expectedSalary") is not None]
+    if not with_salary:
+        return []
+
+    buckets: dict[int, int] = defaultdict(int)
+    for a in with_salary:
+        bucket_start = (int(a["expectedSalary"]) // SALARY_BUCKET_SIZE) * SALARY_BUCKET_SIZE
+        buckets[bucket_start] += 1
+
+    result = []
+    for start in sorted(buckets.keys()):
+        result.append({
+            "range": f"${start // 1000}k-{(start + SALARY_BUCKET_SIZE) // 1000}k",
+            "count": buckets[start],
+        })
+    return result
+
+
+def _compute_salary_insights(apps: list) -> dict:
+    """
+    Computes average expected salary, average offered salary, and the
+    average gap between offer and expectation (only for applications that
+    have BOTH fields set - i.e. an offer was made and an expectation was
+    recorded up front).
+
+    All values are None when there's no data for that metric, rather than 0,
+    so the frontend/LLM context builder can distinguish "no data" from "$0".
+    """
+    with_expected = [a for a in apps if a.get("expectedSalary") is not None]
+    with_offered = [a for a in apps if a.get("offeredSalary") is not None]
+    both = [a for a in with_expected if a.get("offeredSalary") is not None]
+
+    avg_expected = round(sum(a["expectedSalary"] for a in with_expected) / len(with_expected)) if with_expected else None
+    avg_offered = round(sum(a["offeredSalary"] for a in with_offered) / len(with_offered)) if with_offered else None
+
+    diff = None
+    pct = None
+    if both:
+        diffs = [a["offeredSalary"] - a["expectedSalary"] for a in both]
+        diff = round(sum(diffs) / len(diffs))
+        pct_values = [
+            (a["offeredSalary"] - a["expectedSalary"]) / a["expectedSalary"] * 100
+            for a in both if a["expectedSalary"] > 0
+        ]
+        pct = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
+
+    return {
+        "avgExpectedSalary": avg_expected,
+        "avgOfferedSalary": avg_offered,
+        "offerVsExpectedDiff": diff,
+        "offerVsExpectedPct": pct,
+        "expectedCount": len(with_expected),
+        "offeredCount": len(with_offered),
+    }
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 
@@ -462,6 +529,14 @@ def compute_patterns(apps: list) -> dict:
         "funnel": _compute_funnel(apps),
         "responseRateTimeSeries": _compute_response_rate_time_series(apps),
         "statusHistory": _compute_status_history(apps),
+
+        # v3.1 additions
+        "funnel": _compute_funnel(apps),
+        "responseRateTimeSeries": _compute_response_rate_time_series(apps),
+        "statusHistory": _compute_status_history(apps),
+        # v3.1
+        "salaryInsights": _compute_salary_insights(apps),
+        "salaryDistribution": _compute_salary_distribution(apps),
     }
 
 
@@ -493,6 +568,18 @@ def build_context_for_llm(apps: list, patterns: dict, enrichment: dict = None) -
     lines.append("\nResponse rates by company size:")
     for size, data in patterns["breakdowns"]["byCompanySize"].items():
         lines.append(f"  {size}: {data['responseRate']}% ({data['total']} apps)")
+
+    # v3.1: salary insights
+    salary = patterns.get("salaryInsights", {})
+    if salary.get("expectedCount", 0) > 0 or salary.get("offeredCount", 0) > 0:
+        lines.append("\nSalary data:")
+        if salary.get("avgExpectedSalary") is not None:
+            lines.append(f"  Average expected salary: ${salary['avgExpectedSalary']:,} (across {salary['expectedCount']} applications)")
+        if salary.get("avgOfferedSalary") is not None:
+            lines.append(f"  Average offered salary: ${salary['avgOfferedSalary']:,} (across {salary['offeredCount']} offers)")
+        if salary.get("offerVsExpectedDiff") is not None:
+            sign = "+" if salary["offerVsExpectedDiff"] >= 0 else ""
+            lines.append(f"  Average offer vs expectation: {sign}${salary['offerVsExpectedDiff']:,} ({sign}{salary['offerVsExpectedPct']}%)")
 
     # v3.0: active rejection pattern alerts
     if alerts:

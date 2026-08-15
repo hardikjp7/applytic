@@ -323,15 +323,18 @@ applytic/
 │       ├── lib/            # API client, Amplify config, theme, csv utils
 │       ├── pages/          # Dashboard
 │       └── types/          # Shared TypeScript types
-├── tests/                  # 207 pytest tests (90.75% coverage)
+├── tests/                  # 355 pytest tests (93% coverage)
 │   ├── test_applications.py
 │   ├── test_applications_integration.py
 │   ├── test_insights.py
+│   ├── test_insights_v21.py
+│   ├── test_insights_v30.py
 │   ├── test_insights_integration.py
 │   ├── test_digest.py
 │   ├── test_cognito_verify.py
 │   ├── test_followup.py
 │   ├── test_settings.py
+│   ├── test_interview_prep.py
 │   └── test_notes.py
 ├── scripts/
 │   ├── seed_data.py
@@ -405,7 +408,7 @@ All routes protected by Cognito JWT authorizer.
 | Cost at 0 users | ~$0/month |
 | Cost at 100 users | ~$2-5/month |
 | Cost at 1,000 users | ~$15-30/month |
-| Backend test suite | 410 tests, 70% coverage threshold |
+| Backend test suite | 355 tests, 93% coverage (70% threshold) |
 | Frontend test suite | 31 Vitest tests |
 | Full CDK deploy from scratch | under 3 minutes |
 

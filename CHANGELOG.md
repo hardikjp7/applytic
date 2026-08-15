@@ -4,6 +4,60 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.0.1] - 2026-08-08
+
+Patch release addressing bugs found after v3.0 shipped, a GitHub CodeQL security finding, and an AWS cost anomaly. No new user-facing features - all fixes and hardening ahead of v3.1 (Salary & Contact Tracking).
+
+### Fixed
+
+**Analytics zero-state crash**
+- `AnalyticsDashboard.tsx` threw `Cannot read properties of undefined (reading 'total')` when a user had zero applications, since the empty-state guard didn't account for the insights Lambda's message-only response shape (`{"message": "..."}`, no `summary` key)
+- This also left every other page stuck in the error boundary's fallback UI until a hard refresh, since `ErrorBoundary` wasn't keyed to the route
+- `ErrorBoundary` is now keyed to `location.pathname`, so it self-heals on navigation for any future render error, not just this one
+
+**Broken navigation links on Privacy Policy and Terms pages**
+- Logo and "Back to Applytic" links used bare `<a href="/">`, which bypasses React Router's `basename="/applytic/"` and resolved to the wrong domain root on the custom domain deployment
+- Same root cause as a prior fix in `AuthModal.tsx` - now consistently using `<Link to="/">` across both pages (4 instances total)
+
+**FAQ accordion causing whole-page lag**
+- Opening any FAQ question caused visible lag across the entire page, not just the clicked card, on both desktop and mobile
+- Root cause: `backdrop-filter: blur()` on 7 stacked cards forced a live repaint of every shifting sibling on every animation frame
+- FAQ cards now use a solid background instead of blur, and the open/close animation switched from `max-height` to `grid-template-rows` (also fixes a latent bug where long answers could get clipped at 400px)
+
+**Production bundle size**
+- Single JS bundle exceeded Vite's 500kB warning threshold since no route was code-split
+- All page-level routes (`Dashboard`, `KanbanBoard`, `AnalyticsDashboard`, `CoachChat`, `ResumeUpload`, `Landing`, `AuthModal`, `PrivacyPolicy`, `Terms`) now load via `React.lazy()` with `Suspense` boundaries at three levels (protected routes, public routes, modal overlay routes), so users only download the code for the route they visit
+
+### Security
+
+**CodeQL: Bad HTML filtering regexp (`py/bad-tag-filter`)**
+- `interview_prep/handler.py`'s job-description HTML stripper used a regex that could be bypassed by malformed-but-browser-accepted close tags like `</script foo="bar">`
+- Replaced with Python's stdlib `html.parser.HTMLParser`, which tokenizes tag structure instead of pattern-matching - no new dependencies added
+- Closes #40
+
+### Infrastructure
+
+**Google OAuth credentials moved off Secrets Manager**
+- AWS Cost Anomaly Detection flagged ~$0.013/day in ongoing Secrets Manager charges for credentials that are only needed at CDK deploy time (Cognito stores them internally after that)
+- Migrated to SSM Parameter Store (SecureString, Standard tier), which is free at this volume
+- CloudFormation does not support `{{resolve:ssm-secure:...}}` dynamic references on `AWS::Cognito::UserPoolIdentityProvider`'s `ProviderDetails` property - dynamic references are only supported on a CFN-defined property allowlist, and Cognito identity providers aren't on it for this reference type. Resolved via `AwsCustomResource` instead: a CDK-managed Lambda calls `ssm:GetParameter` (with decryption) at deploy time, and the already-resolved value is passed through `Fn::GetAtt`, which has no such restriction
+- Old `applytic/google-oauth` Secrets Manager secret verified and deleted post-deployment (7-day recovery window)
+
+### Content
+
+**Landing page updated for v3.0 features**
+- FeatureShowcase, HowItWorks, DeepDive, and FAQ previously had no mention of Interview Prep or Rejection Pattern Alerts despite both shipping in v3.0 - added across all four sections
+- DeepDive's alternating left/right visual layout restored (Track / Analyze / Prep / Coach zigzag) after adding the new Prep & Alerts section
+
+### Tests
+- 3 new tests in `test_interview_prep.py` covering the HTML-stripping fix
+- 355 backend tests, all passing, 93% coverage (threshold: 70%)
+
+### Upgrade notes
+Self-hosters using Google OAuth: the Secrets Manager to SSM migration requires manually creating two SSM SecureString parameters before deploying (`/applytic/google-oauth/client-id`, `/applytic/google-oauth/client-secret`) - see `cdk/lib/applytic-stack.ts` comments for the exact `aws ssm put-parameter` commands.
+
+---
+
 ## [3.0.0] - 2026-07-26
 
 ### Added

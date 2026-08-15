@@ -395,6 +395,20 @@ export class ApplyticStack extends cdk.Stack {
 
     table.grantReadWriteData(notesLambda);
 
+    // ─── v3.1: Lambda: contacts sub-resource ─────────────────────────────────
+    const contactsLambda = new lambda.Function(this, 'ContactsLambda', {
+      functionName: 'applytic-contacts',
+      runtime, architecture, memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      logRetention, tracing: tracingConfig, layers: [sharedLayer],
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/contacts')),
+      handler: 'handler.lambda_handler',
+      description: 'v3.1 - Contacts sub-resource per application',
+      environment: commonEnv,
+    });
+
+    table.grantReadWriteData(contactsLambda);
+
     // ─── v3.0: Lambda: interview prep ────────────────────────────────────────
     const interviewPrepLambda = new lambda.Function(this, 'InterviewPrepLambda', {
       functionName: 'applytic-interview-prep',
@@ -424,7 +438,7 @@ export class ApplyticStack extends cdk.Stack {
     [
       applicationsLambda, insightsLambda, digestLambda,
       cognitoVerifyLambda, followUpLambda, settingsLambda, notesLambda,
-      interviewPrepLambda,
+      interviewPrepLambda, contactsLambda,
     ].forEach(fn => fn.addToRolePolicy(xrayPolicy));
 
     // ─── EventBridge: Monday 8am UTC - weekly digest ──────────────────────────
@@ -486,6 +500,12 @@ export class ApplyticStack extends cdk.Stack {
       metric: interviewPrepLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
       threshold: 1, ...alarmDefaults,
     }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    new cloudwatch.Alarm(this, 'ContactsLambdaErrorAlarm', {
+      alarmName: 'applytic-contacts-errors',
+      metric: contactsLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 5, ...alarmDefaults,
+    }).addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic)); 
 
     new cloudwatch.Alarm(this, 'ApplicationsLambdaP99Alarm', {
       alarmName: 'applytic-applications-p99-latency',
@@ -630,6 +650,14 @@ export class ApplyticStack extends cdk.Stack {
 
     const noteResource = notesResource.addResource('{noteId}');
     noteResource.addMethod('DELETE', new apigateway.LambdaIntegration(notesLambda), authOptions);
+
+    // ─── v3.1: /applications/{appId}/contacts routes ──────────────────────────
+    const contactsResource = appResource.addResource('contacts');
+    contactsResource.addMethod('GET', new apigateway.LambdaIntegration(contactsLambda), authOptions);
+    contactsResource.addMethod('POST', new apigateway.LambdaIntegration(contactsLambda), authOptions);
+
+    const contactResource = contactsResource.addResource('{contactId}');
+    contactResource.addMethod('DELETE', new apigateway.LambdaIntegration(contactsLambda), authOptions);
 
     // ─── v3.0: /applications/{appId}/interview-prep routes ───────────────────
     const interviewPrepResource = appResource.addResource('interview-prep');

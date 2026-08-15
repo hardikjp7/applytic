@@ -105,7 +105,7 @@ python seed_data.py --user-id YOUR_COGNITO_SUB --clear
 ## Running Tests
 
 ```bash
-# Run all 48 tests
+# Run all 355 tests
 python -m pytest tests/ -v --tb=short
 
 # Run only applications handler tests
@@ -117,7 +117,7 @@ python -m pytest tests/test_insights.py -v
 
 Tests use `importlib.util.spec_from_file_location` to avoid module name collisions between `applications/handler.py` and `insights/handler.py`. All env vars are set in `conftest.py` — no real AWS credentials needed for unit tests.
 
-**All 48 tests must pass before opening a PR.**
+**All 355 tests must pass before opening a PR.**
 
 ---
 
@@ -129,7 +129,13 @@ applytic/
 ├── lambdas/
 │   ├── applications/       # CRUD, status pipeline, S3 presigned URLs
 │   ├── insights/           # Pattern analysis, Bedrock chat, rate limiting
-│   └── digest/             # Weekly SES email digest
+│   ├── digest/             # Weekly SES email digest, rejection pattern alerts
+│   ├── followup/           # Daily follow-up reminder emails
+│   ├── settings/           # Weekly goal  streak tracking, alerts
+│   ├── notes/              # Per-application notes timeline
+│   ├── interview_prep/     # Bedrock interview question generation
+│   ├── cognito_verify/     # Post Confirmation/Authentication SES trigger
+│   └── shared_layer/       # Shared middleware, Pydantic, X-Ray Lambda Layer
 ├── frontend/src/
 │   ├── components/         # React components (kanban, chat, analytics, resume)
 │   ├── hooks/              # Custom React hooks
@@ -185,7 +191,7 @@ docs: add CONTRIBUTING.md and PR template
 
 ## Pull Request Process
 
-1. Ensure all 48 tests pass locally (`python -m pytest tests/ -v`)
+1. Ensure all 355 tests pass locally (`python -m pytest tests/ -v`)
 2. Run `npm run build` in `frontend/` and confirm no TypeScript errors
 3. Open a PR against `main` using the PR template
 4. Fill in all sections of the PR template — incomplete PRs will be asked to update
