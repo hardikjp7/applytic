@@ -163,6 +163,9 @@ export default function KanbanBoard() {
           jobDescUrl: row.jobDescUrl,
           notes: row.notes,
           followUpDate: row.followUpDate,
+          expectedSalary: null,  // v3.1 - not supported via CSV import yet
+          offeredSalary: null,   // v3.1
+          salaryNotes: '',       // v3.1
         })
         imported++
       } catch {

@@ -40,6 +40,9 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
     notes: app.notes,
     dateApplied: app.dateApplied,
     followUpDate: app.followUpDate ?? '',   // Bug 1 fix: add followUpDate to form
+    expectedSalary: app.expectedSalary != null ? String(app.expectedSalary) : '',  // v3.1
+    offeredSalary: app.offeredSalary != null ? String(app.offeredSalary) : '',  // v3.1
+    salaryNotes: app.salaryNotes ?? '',  // v3.1
   })
   const [noteInput, setNoteInput] = useState('')
 
@@ -64,6 +67,8 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
       ...form,
       // Send null when field is cleared so the backend clears it
       followUpDate: form.followUpDate.trim() === '' ? null : form.followUpDate,
+      expectedSalary: form.expectedSalary.trim() === '' ? null : Number(form.expectedSalary),  // v3.1
+      offeredSalary: form.offeredSalary.trim() === '' ? null : Number(form.offeredSalary),  // v3.1
     })
     setEditing(false)
   }
@@ -233,6 +238,55 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                   </div>
                 ) : (
                   <p className="text-sm text-gray-400">-</p>
+                )}
+              </Field>
+
+              {/* v3.1: Salary field */}
+              <Field label="Salary" dark>
+                {editing ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Expected</label>
+                      <input
+                        type="number" min={0} max={2000000}
+                        className={inp}
+                        value={form.expectedSalary}
+                        onChange={e => set('expectedSalary', e.target.value)}
+                        placeholder="140000"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Offered</label>
+                      <input
+                        type="number" min={0} max={2000000}
+                        className={inp}
+                        value={form.offeredSalary}
+                        onChange={e => set('offeredSalary', e.target.value)}
+                        placeholder="155000"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs text-gray-400 mb-1">Notes</label>
+                      <input
+                        className={inp}
+                        value={form.salaryNotes}
+                        onChange={e => set('salaryNotes', e.target.value)}
+                        placeholder="140-160k + equity"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {(app.expectedSalary != null || app.offeredSalary != null) ? (
+                      <div className="flex items-center gap-3 text-sm text-gray-800 dark:text-gray-200">
+                        {app.expectedSalary != null && <span>${app.expectedSalary.toLocaleString()} expected</span>}
+                        {app.offeredSalary != null && <span className="text-green-600 dark:text-green-400">${app.offeredSalary.toLocaleString()} offered</span>}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">-</p>
+                    )}
+                    {app.salaryNotes && <p className="text-xs text-gray-400 mt-0.5">{app.salaryNotes}</p>}
+                  </div>
                 )}
               </Field>
 

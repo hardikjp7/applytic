@@ -14,6 +14,8 @@ const defaultForm = {
   source: 'linkedin' as const, resumeVersion: '',
   companySize: '' as const, jobDescUrl: '', notes: '',
   followUpDate: null as string | null,
+  expectedSalary: '' as string,  // v3.1 - string in form state, converted on submit
+  salaryNotes: '',  // v3.1
 }
 
 const inp = 'w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500'
@@ -28,6 +30,8 @@ export default function AddApplicationModal({ onClose, onSave }: Props) {
     onSave({
       ...form,
       followUpDate: form.followUpDate?.trim() === '' ? null : form.followUpDate,
+      expectedSalary: form.expectedSalary.trim() === '' ? null : Number(form.expectedSalary),
+      offeredSalary: null,
     })
     onClose()
   }
@@ -43,11 +47,11 @@ export default function AddApplicationModal({ onClose, onSave }: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Company *</label>
-              <input className={inp} value={form.company} onChange={e => set('company', e.target.value)} placeholder="Anthropic" required />
+              <input className={inp} value={form.company} onChange={e => set('company', e.target.value)} placeholder="Google" required />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Role *</label>
-              <input className={inp} value={form.role} onChange={e => set('role', e.target.value)} placeholder="ML Engineer" required />
+              <input className={inp} value={form.role} onChange={e => set('role', e.target.value)} placeholder="AI Engineer" required />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -97,9 +101,32 @@ export default function AddApplicationModal({ onClose, onSave }: Props) {
               <p className="text-xs text-gray-400 mt-1">Optional - get a reminder to follow up.</p>
             </div>
           </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Expected salary</label>
+              <input
+                type="number"
+                min={0}
+                max={2000000}
+                className={inp}
+                value={form.expectedSalary}
+                onChange={e => set('expectedSalary', e.target.value)}
+                placeholder="140000"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Salary notes</label>
+              <input
+                className={inp}
+                value={form.salaryNotes}
+                onChange={e => set('salaryNotes', e.target.value)}
+                placeholder="140-160k + equity"
+              />
+            </div>
+          </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Notes</label>
-            <textarea className={`${inp} resize-none`} rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Referral from Priya..." />
+            <textarea className={`${inp} resize-none`} rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Referral from Vidhi..." />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>

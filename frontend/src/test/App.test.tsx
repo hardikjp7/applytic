@@ -197,6 +197,30 @@ describe('AddApplicationModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave.mock.calls[0][0].resumeVersion).toBe('v3-ml-focused')
   })
+
+  it('renders expected salary and salary notes fields', () => {
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    expect(screen.getByPlaceholderText('140000')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('140-160k + equity')).toBeInTheDocument()
+  })
+
+  it('includes expectedSalary as a number when filled in', async () => {
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.type(screen.getByPlaceholderText('140000'), '150000')
+    await userEvent.click(screen.getByRole('button', { name: /add application/i }))
+    expect(mockOnSave.mock.calls[0][0].expectedSalary).toBe(150000)
+  })
+
+  it('defaults expectedSalary to null when left empty', async () => {
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.click(screen.getByRole('button', { name: /add application/i }))
+    expect(mockOnSave.mock.calls[0][0].expectedSalary).toBeNull()
+    expect(mockOnSave.mock.calls[0][0].offeredSalary).toBeNull()
+  })
 })
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

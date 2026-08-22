@@ -19,6 +19,9 @@ export interface Application {
   jobDescUrl: string
   notes: string
   followUpDate: string | null  // v2.0: YYYY-MM-DD, null if not set
+  expectedSalary: number | null  // v3.1
+  offeredSalary: number | null  // v3.1
+  salaryNotes: string  // v3.1
   createdAt: string
   updatedAt: string
 }
@@ -60,6 +63,22 @@ export interface StatusHistoryPoint {
   rejected: number
 }
 
+// v3.1: salary insights returned by the insights Lambda
+export interface SalaryInsights {
+  avgExpectedSalary: number | null
+  avgOfferedSalary: number | null
+  offerVsExpectedDiff: number | null
+  offerVsExpectedPct: number | null
+  expectedCount: number
+  offeredCount: number
+}
+
+// v3.1: one bucket in the expected-salary distribution
+export interface SalaryDistributionPoint {
+  range: string
+  count: number
+}
+
 export interface Patterns {
   summary: {
     total: number
@@ -83,6 +102,9 @@ export interface Patterns {
   funnel: { stages: FunnelStage[] }
   responseRateTimeSeries: ResponseRatePoint[]
   statusHistory: StatusHistoryPoint[]
+  // v3.1 additions
+  salaryInsights: SalaryInsights
+  salaryDistribution: SalaryDistributionPoint[]
 }
 
 // v2.0: user settings - weekly goal and streak
