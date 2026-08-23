@@ -1,5 +1,5 @@
 import { api } from './amplify'
-import type { Application, AppStatus, Patterns, UserSettings, Note, InterviewPrep, InterviewQuestion, PatternAlert } from '../types'
+import type { Application, AppStatus, Patterns, UserSettings, Note, InterviewPrep, InterviewQuestion, PatternAlert, Contact } from '../types'
 
 // ── Applications ──────────────────────────────────────────────────────────────
 
@@ -112,6 +112,28 @@ export const deleteNote = async (
   noteId: string
 ): Promise<void> => {
   await api.delete(`/applications/${appId}/notes/${noteId}`)
+}
+
+// ── v3.1: Contacts ────────────────────────────────────────────────────────────
+
+export const getContacts = async (appId: string): Promise<Contact[]> => {
+  const res = await api.get(`/applications/${appId}/contacts`)
+  return res.data.contacts
+}
+
+export const createContact = async (
+  appId: string,
+  data: { name: string; email?: string; linkedinUrl?: string; role?: string }
+): Promise<Contact> => {
+  const res = await api.post(`/applications/${appId}/contacts`, data)
+  return res.data.contact
+}
+
+export const deleteContact = async (
+  appId: string,
+  contactId: string
+): Promise<void> => {
+  await api.delete(`/applications/${appId}/contacts/${contactId}`)
 }
 
 // ── v3.0: Interview Prep ────────────────────────────────────────────────────

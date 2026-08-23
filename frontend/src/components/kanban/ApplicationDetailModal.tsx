@@ -7,6 +7,7 @@ import ConfirmDialog from '../layout/ConfirmDialog'
 import { useNotes } from '../../hooks/useNotes'
 import { useInterviewPrep } from '../../hooks/useInterviewPrep'
 import ResumeVersionSelect from './ResumeVersionSelect'
+import { useContacts } from '../../hooks/useContacts'
 
 interface Props {
   app: Application
@@ -49,6 +50,10 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
   // Bug 2 fix: use notes timeline hook (v2.1: React Query backed)
   const { notes, loading: notesLoading, submitting, addNote, removeNote } = useNotes(app.appId)
 
+  // v3.1: contacts sub-resource
+  const { contacts, loading: contactsLoading, submitting: contactSubmitting, addContact, removeContact } = useContacts(app.appId)
+  const [contactForm, setContactForm] = useState({ name: '', email: '', linkedinUrl: '', role: '' })
+
   // v3.0: interview prep hook - only meaningfully used when the tab is eligible,
   // but the hook itself is cheap to mount (React Query won't fetch until enabled)
   const showInterviewPrepTab = INTERVIEW_PREP_ELIGIBLE_STATUSES.includes(app.status)
@@ -82,6 +87,16 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
       setNoteInput('')
     } catch {
       // error toast already shown by useNotes - keep the draft so the user can retry
+    }
+  }
+
+    const handleAddContact = async () => {
+    if (!contactForm.name.trim()) return
+    try {
+      await addContact(contactForm)
+      setContactForm({ name: '', email: '', linkedinUrl: '', role: '' })
+    } catch {
+      // error toast already shown by useContacts - keep the draft so the user can retry
     }
   }
 
@@ -332,6 +347,93 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                     ))
                   )}
                 </div>
+
+              {/* v3.1: Contacts */}
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <Send size={11} className="rotate-45" /> Contacts
+                </p>
+
+                <div className="space-y-2 mb-3">
+                  {contactsLoading ? (
+                    <div className="space-y-2">
+                      {[...Array(2)].map((_, i) => (
+                        <div key={i} className="h-12 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />
+                      ))}
+                    </div>
+                  ) : contacts.length === 0 ? (
+                    <p className="text-xs text-gray-300 dark:text-gray-600 py-2">No contacts yet. Add a recruiter or hiring manager below.</p>
+                  ) : (
+                    contacts.map(contact => (
+                      <div key={contact.contactId} className="group flex items-start gap-2 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{contact.name}</p>
+                            {contact.role && (
+                              <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded shrink-0">{contact.role}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {contact.email && (
+                              <a href={`mailto:${contact.email}`} className="text-xs text-brand-600 dark:text-brand-400 hover:underline truncate">{contact.email}</a>
+                            )}
+                            {contact.linkedinUrl && (
+                              <a href={contact.linkedinUrl} target="_blank" rel="noreferrer" className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1">
+                                <ExternalLink size={10} /> LinkedIn
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => removeContact(contact.contactId)}
+                          className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-0.5"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Add contact form */}
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    className="col-span-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                    placeholder="Name"
+                    value={contactForm.name}
+                    onChange={e => setContactForm(f => ({ ...f, name: e.target.value }))}
+                    disabled={contactSubmitting}
+                  />
+                  <input
+                    className="border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                    placeholder="Role (Recruiter...)"
+                    value={contactForm.role}
+                    onChange={e => setContactForm(f => ({ ...f, role: e.target.value }))}
+                    disabled={contactSubmitting}
+                  />
+                  <input
+                    className="border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                    placeholder="Email"
+                    value={contactForm.email}
+                    onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
+                    disabled={contactSubmitting}
+                  />
+                  <input
+                    className="col-span-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                    placeholder="LinkedIn URL"
+                    value={contactForm.linkedinUrl}
+                    onChange={e => setContactForm(f => ({ ...f, linkedinUrl: e.target.value }))}
+                    disabled={contactSubmitting}
+                  />
+                  <button
+                    onClick={handleAddContact}
+                    disabled={contactSubmitting || !contactForm.name.trim()}
+                    className="col-span-2 px-3 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 disabled:opacity-40 transition-colors"
+                  >
+                    Add contact
+                  </button>
+                </div>
+              </div>
 
                 {/* Add note input */}
                 <div className="flex gap-2">

@@ -122,6 +122,17 @@ export interface Note {
   createdAt: string
 }
 
+// v3.1: contact attached to an application (recruiter, hiring manager, referral, etc.)
+export interface Contact {
+  contactId: string
+  appId: string
+  name: string
+  email: string
+  linkedinUrl: string
+  role: string
+  createdAt: string
+}
+
 // ── v3.0: Interview Prep ────────────────────────────────────────────────────
 
 export interface InterviewQuestion {

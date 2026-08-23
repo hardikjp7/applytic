@@ -299,6 +299,18 @@ function Root() {
 export default function App() {
   const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/'
 
+  // v3.1 fix: browser's native scroll restoration ('auto' by default) fights
+  // with our own restore logic in Landing.tsx - it tracks scroll per history
+  // entry independently and reapplies it on navigation, which produced the
+  // "lands at Features section" bug when returning from Privacy/Terms.
+  // Taking manual control here means Landing.tsx's explicit restore is the
+  // only thing driving scroll position on back-navigation.
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual'
+    }
+  }, [])
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename={basename}>

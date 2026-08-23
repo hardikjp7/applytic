@@ -37,6 +37,9 @@ vi.mock('../lib/api', () => ({
   getInterviewPrep: vi.fn().mockResolvedValue(null),
   generateInterviewPrep: vi.fn(),
   updateInterviewQuestion: vi.fn(),
+  getContacts: vi.fn().mockResolvedValue([]),
+  createContact: vi.fn(),
+  deleteContact: vi.fn(),
 }))
 
 vi.mock('../lib/amplify', () => ({
@@ -115,8 +118,8 @@ describe('AddApplicationModal', () => {
 
   it('renders company and role inputs', () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    expect(screen.getByPlaceholderText('Anthropic')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('ML Engineer')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Google')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('AI Engineer')).toBeInTheDocument()
   })
 
   it('renders submit button', () => {
@@ -132,22 +135,22 @@ describe('AddApplicationModal', () => {
 
   it('does not call onSave when company is empty', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Software Engineer')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Software Engineer')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave).not.toHaveBeenCalled()
   })
 
   it('does not call onSave when role is empty', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave).not.toHaveBeenCalled()
   })
 
   it('calls onSave and onClose with correct data when form is valid', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
-    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Backend Engineer')
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Backend Engineer')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave).toHaveBeenCalledOnce()
     const savedData = mockOnSave.mock.calls[0][0]
@@ -159,8 +162,8 @@ describe('AddApplicationModal', () => {
 
   it('defaults source to linkedin', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
-    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Eng')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave.mock.calls[0][0].source).toBe('linkedin')
   })
@@ -173,8 +176,8 @@ describe('AddApplicationModal', () => {
   // v2.2 Session 0: resume version dropdown tests
   it('defaults resume version to empty (no free-text default)', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
-    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Eng')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave.mock.calls[0][0].resumeVersion).toBe('')
   })
@@ -189,8 +192,8 @@ describe('AddApplicationModal', () => {
 
   it('selecting a resume version includes it in saved data', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
-    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Eng')
     await waitFor(() => screen.getByRole('option', { name: 'v3-ml-focused' }))
     const resumeSelect = screen.getByRole('option', { name: 'v3-ml-focused' }).closest('select')!
     await userEvent.selectOptions(resumeSelect, 'v3-ml-focused')
@@ -206,8 +209,8 @@ describe('AddApplicationModal', () => {
 
   it('includes expectedSalary as a number when filled in', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
-    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Eng')
     await userEvent.type(screen.getByPlaceholderText('140000'), '150000')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave.mock.calls[0][0].expectedSalary).toBe(150000)
@@ -215,8 +218,8 @@ describe('AddApplicationModal', () => {
 
   it('defaults expectedSalary to null when left empty', async () => {
     renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
-    await userEvent.type(screen.getByPlaceholderText('Anthropic'), 'Stripe')
-    await userEvent.type(screen.getByPlaceholderText('ML Engineer'), 'Eng')
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Eng')
     await userEvent.click(screen.getByRole('button', { name: /add application/i }))
     expect(mockOnSave.mock.calls[0][0].expectedSalary).toBeNull()
     expect(mockOnSave.mock.calls[0][0].offeredSalary).toBeNull()
@@ -290,7 +293,7 @@ describe('KanbanBoard', () => {
     renderWithProviders(<KanbanBoard />)
     await waitFor(() => screen.getByRole('button', { name: /add first application/i }))
     await userEvent.click(screen.getByRole('button', { name: /add first application/i }))
-    expect(screen.getByPlaceholderText('Anthropic')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Google')).toBeInTheDocument()
   })
 
   it('shows application cards when applications exist', async () => {
@@ -319,7 +322,7 @@ describe('KanbanBoard keyboard shortcuts', () => {
     await waitFor(() => screen.getByRole('button', { name: /add first application/i }))
 
     await userEvent.keyboard('n')
-    expect(screen.getByPlaceholderText('Anthropic')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Google')).toBeInTheDocument()
   })
 
   it('pressing Escape closes the open Add application modal', async () => {
@@ -328,7 +331,7 @@ describe('KanbanBoard keyboard shortcuts', () => {
     await waitFor(() => screen.getByRole('button', { name: /add first application/i }))
 
     await userEvent.click(screen.getByRole('button', { name: /add first application/i }))
-    expect(screen.getByPlaceholderText('Anthropic')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Google')).toBeInTheDocument()
 
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByPlaceholderText('Anthropic')).not.toBeInTheDocument()
