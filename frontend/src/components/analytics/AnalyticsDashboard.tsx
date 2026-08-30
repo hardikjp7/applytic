@@ -94,6 +94,8 @@ export default function AnalyticsDashboard() {
   const resumeData = Object.entries(patterns.breakdowns.byResumeVersion).map(([name, d]) => ({ name, responseRate: d.responseRate, total: d.total }))
   const statusData = Object.entries(patterns.summary.byStatus).map(([name, value]) => ({ name, value: value as number }))
   const velocityData = Object.entries(patterns.velocity).map(([key, count]) => ({ name: key.replace('week_', 'W-').replace('_ago', ''), count })).reverse()
+  // v3.1: salary distribution bar data
+  const salaryDistributionData = patterns.salaryDistribution ?? []
 
   // v2.1: funnel chart data - show count as bar, label shows conversion from prev
   const funnelData = (patterns.funnel?.stages ?? []).map(s => ({
@@ -162,6 +164,35 @@ export default function AnalyticsDashboard() {
                 <p className="text-gray-400 text-xs mb-0.5">Best company size</p>
                 <p className="font-medium text-brand-800 dark:text-brand-300">{patterns.highlights.bestCompanySize.name}</p>
                 <p className="text-xs text-brand-600 dark:text-brand-400">{patterns.highlights.bestCompanySize.responseRate}% response rate</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* v3.1: Salary insights */}
+      {(patterns.salaryInsights?.expectedCount > 0 || patterns.salaryInsights?.offeredCount > 0) && (
+        <div className="bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-800/30 rounded-xl p-4">
+          <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide mb-3">Salary insights</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            {patterns.salaryInsights.avgExpectedSalary != null && (
+              <div>
+                <p className="text-gray-400 text-xs mb-0.5">Avg expected ({patterns.salaryInsights.expectedCount} apps)</p>
+                <p className="font-medium text-green-800 dark:text-green-300">${patterns.salaryInsights.avgExpectedSalary.toLocaleString()}</p>
+              </div>
+            )}
+            {patterns.salaryInsights.avgOfferedSalary != null && (
+              <div>
+                <p className="text-gray-400 text-xs mb-0.5">Avg offered ({patterns.salaryInsights.offeredCount} offers)</p>
+                <p className="font-medium text-green-800 dark:text-green-300">${patterns.salaryInsights.avgOfferedSalary.toLocaleString()}</p>
+              </div>
+            )}
+            {patterns.salaryInsights.offerVsExpectedDiff != null && (
+              <div>
+                <p className="text-gray-400 text-xs mb-0.5">Offer vs expectation</p>
+                <p className="font-medium text-green-800 dark:text-green-300">
+                  {patterns.salaryInsights.offerVsExpectedDiff >= 0 ? '+' : ''}${patterns.salaryInsights.offerVsExpectedDiff.toLocaleString()} ({patterns.salaryInsights.offerVsExpectedPct}%)
+                </p>
               </div>
             )}
           </div>
@@ -317,6 +348,22 @@ export default function AnalyticsDashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* v3.1: Salary distribution */}
+        {salaryDistributionData.length > 0 && (
+          <div className={`${card} p-5`}>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Expected salary distribution</p>
+            <p className="text-xs text-gray-400 mb-4">Applications bucketed by expected salary</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={salaryDistributionData} barSize={28}>
+                <XAxis dataKey="range" tick={tickStyle} />
+                <YAxis tick={tickStyle} allowDecimals={false} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} apps`, 'Count']} />
+                <Bar dataKey="count" fill="#d85a30" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
 
         {/* v2.1: Status history stacked bar */}
         {statusHistoryData.length > 0 && (

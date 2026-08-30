@@ -69,8 +69,17 @@
     }
     </script>
 
-    <!-- Favicon -->
+    <!-- Favicon - v3.1 fix: Google Search favicon crawler has unreliable SVG
+         support and wants a static PNG/ICO at a stable URL, multiple of 48px.
+         SVG kept first for modern browsers; PNG/ICO fallbacks added for
+         Google Search + older browser compatibility. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <!-- GitHub Pages SPA routing fix -->

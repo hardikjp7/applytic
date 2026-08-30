@@ -40,6 +40,9 @@ class CreateApplicationRequest(BaseModel):
     companySize: Optional[Literal["startup", "mid", "enterprise", ""]] = ""
     notes: Optional[str] = ""
     followUpDate: Optional[str] = None  # v2.0: YYYY-MM-DD, nullable
+    expectedSalary: Optional[int] = None  # v3.1
+    offeredSalary: Optional[int] = None  # v3.1
+    salaryNotes: Optional[str] = ""  # v3.1
 
     @field_validator("company", "role")
     @classmethod
@@ -60,6 +63,15 @@ class CreateApplicationRequest(BaseModel):
             raise ValueError("followUpDate must be YYYY-MM-DD format")
         return v
 
+    @field_validator("expectedSalary", "offeredSalary")
+    @classmethod
+    def salary_in_range(cls, v: Optional[int]) -> Optional[int]:
+        if v is None:
+            return v
+        if v < 0 or v > 2_000_000:
+            raise ValueError("salary must be between 0 and 2,000,000")
+        return v
+
 
 class UpdateApplicationRequest(BaseModel):
     company: Optional[str] = None
@@ -71,6 +83,9 @@ class UpdateApplicationRequest(BaseModel):
     notes: Optional[str] = None
     dateApplied: Optional[str] = None
     followUpDate: Optional[str] = None  # v2.0: can update or clear (pass null to clear)
+    expectedSalary: Optional[int] = None  # v3.1: can update or clear (pass null to clear)
+    offeredSalary: Optional[int] = None  # v3.1: can update or clear (pass null to clear)
+    salaryNotes: Optional[str] = None  # v3.1
 
     @field_validator("followUpDate")
     @classmethod
@@ -82,6 +97,15 @@ class UpdateApplicationRequest(BaseModel):
             datetime.strptime(v, "%Y-%m-%d")
         except ValueError:
             raise ValueError("followUpDate must be YYYY-MM-DD format")
+        return v
+
+    @field_validator("expectedSalary", "offeredSalary")
+    @classmethod
+    def salary_in_range(cls, v: Optional[int]) -> Optional[int]:
+        if v is None:
+            return v
+        if v < 0 or v > 2_000_000:
+            raise ValueError("salary must be between 0 and 2,000,000")
         return v
 
 
@@ -133,6 +157,9 @@ def create_application(user_id: str, body: dict, event: dict) -> dict:
         "jobDescUrl": req.jobDescUrl, "companySize": req.companySize,
         "notes": req.notes,
         "followUpDate": req.followUpDate,  # v2.0
+        "expectedSalary": req.expectedSalary,  # v3.1
+        "offeredSalary": req.offeredSalary,  # v3.1
+        "salaryNotes": req.salaryNotes,  # v3.1
         "createdAt": ts, "updatedAt": ts,
         "entityType": "APPLICATION",
     }
@@ -162,6 +189,7 @@ def update_application(user_id: str, app_id: str, body: dict, event: dict) -> di
     allowed = [
         "company", "role", "jobDescUrl", "resumeVersion", "source",
         "companySize", "notes", "dateApplied", "followUpDate",  # v2.0
+        "expectedSalary", "offeredSalary", "salaryNotes",  # v3.1
     ]
     updates = {k: v for k, v in req.model_dump(exclude_none=True).items() if k in allowed}
 
@@ -169,6 +197,12 @@ def update_application(user_id: str, app_id: str, body: dict, event: dict) -> di
     # model_dump(exclude_none=True) skips None, so we check raw body separately
     if "followUpDate" in body and body["followUpDate"] is None:
         updates["followUpDate"] = None
+
+    # v3.1: support explicitly clearing offeredSalary and expectedSalary by passing null in body
+    if "offeredSalary" in body and body["offeredSalary"] is None:
+        updates["offeredSalary"] = None
+    if "expectedSalary" in body and body["expectedSalary"] is None:
+        updates["expectedSalary"] = None
 
     if not updates:
         return resp(400, {"error": "No valid fields to update"}, event)

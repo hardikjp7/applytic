@@ -4,6 +4,101 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.1.0] - 2026-08-30
+
+### Added
+
+**Salary Tracking**
+- `expectedSalary`, `offeredSalary` (nullable int, 0-2,000,000) and `salaryNotes` (free text) added to the applications schema
+- Pydantic validation in `applications/handler.py` on both create and update, including explicit-null clearing for both salary fields (mirrors the existing `followUpDate` pattern)
+- `insights/handler.py`: `_compute_salary_distribution()` buckets applications into $20k expected-salary ranges; `_compute_salary_insights()` computes average expected/offered salary and the average offer-vs-expectation gap (both count and percentage), scoped only to applications with both fields set
+- Both wired into `compute_patterns()` output as `salaryInsights` and `salaryDistribution`
+- `build_context_for_llm()` extended with a "Salary data" section so the AI coach can answer questions like "am I targeting the right salary range?"
+- Frontend: expected salary + salary notes fields in `AddApplicationModal.tsx`; expected/offered salary + notes in `ApplicationDetailModal.tsx` edit form; salary insights banner + expected-salary distribution bar chart in `AnalyticsDashboard.tsx`
+- 39 new tests in `tests/test_insights_v31.py`, plus salary-field tests added to `tests/test_applications.py` and `tests/test_applications_integration.py`
+
+**Contact Tracking**
+- New `applytic-contacts` Lambda (`lambdas/contacts/handler.py`) - `GET/POST /applications/{appId}/contacts`, `DELETE /applications/{appId}/contacts/{contactId}`
+- `CONTACT` DynamoDB entity: `PK=APP#{appId}`, `SK=CONTACT#{timestamp}#{contactId}` - name (required), email, LinkedIn URL, role (all optional free text)
+- Ownership verification mirrors `notes/handler.py` exactly - checks the parent APPLICATION record exists under `USER#{userId}` before any read/write
+- CDK: new Lambda (ARM64, 512MB, 30s), 3 new API Gateway routes, X-Ray IAM, CloudWatch error alarm, dashboard widget entries
+- Frontend: new `useContacts.ts` React Query hook (mirrors `useNotes.ts`); Contacts section in `ApplicationDetailModal.tsx` with inline add form and hover-to-delete list
+- New `tests/test_contacts.py` - 30 unit tests
+
+### Fixed
+
+**Google Search favicon not displaying**
+- Site only served `favicon.svg` with no PNG/ICO fallback and a referenced-but-nonexistent `apple-touch-icon.png`. Google's Search favicon crawler has unreliable SVG support and expects a static PNG/ICO at a stable URL, ideally a multiple of 48px
+- Generated `favicon.ico` (16/32/48px embedded), PNG favicons at 16/32/48/96/192/512px, and a real `apple-touch-icon.png` (180px), all matching the existing purple rounded-square "A" mark
+- `index.html` `<link rel="icon">` block extended with PNG/ICO fallbacks alongside the existing SVG; `_headers` updated to long-cache the new static assets
+
+**Privacy/Terms "Back to Applytic" returned to the wrong scroll position**
+- Returning from `/privacy` or `/terms` landed on the landing page's Features section instead of wherever the user had scrolled to before navigating away
+- Root cause: the browser's native `history.scrollRestoration` ('auto' by default) tracks scroll per history entry independently of React Router and reapplies a stale offset against freshly re-mounted (and lazy-loaded) content, which doesn't line up
+- Fix: `App.tsx` sets `window.history.scrollRestoration = 'manual'`; `Landing.tsx` now saves scroll position via a live `scroll` listener (not unmount-cleanup, which is unreliable under React 18 StrictMode's dev-only double-invoke) and restores it only on `POP` navigation (back button), retried across a few animation frames so lazy-loaded/scroll-reveal sections have settled first. `PrivacyPolicy.tsx`/`Terms.tsx` explicitly scroll to top on mount, since manual restoration mode means the browser no longer does this automatically. "Back to Applytic" changed from `<Link to="/">` to a `navigate(-1)` handler so it triggers real back-navigation (falls back to `navigate('/')` if there's no history to go back to)
+
+**CSV import missing new required Application fields**
+- `KanbanBoard.tsx`'s CSV import path builds an `Application`-shaped object for `create()`; after `expectedSalary`/`offeredSalary`/`salaryNotes` were added to the type, this failed to compile
+- Fix: import defaults all three to empty/null - CSV import does not yet support salary columns
+
+**Commit scope:** `lambdas/contacts/` (new), `lambdas/applications/`, `lambdas/insights/`, `cdk/`, `frontend/src/`, `frontend/public/`, `frontend/index.html`, `tests/`, `api/`, `api-docs/`
+
+---
+
+## [3.0.1] - 2026-08-08
+
+Patch release addressing bugs found after v3.0 shipped, a GitHub CodeQL security finding, and an AWS cost anomaly. No new user-facing features - all fixes and hardening ahead of v3.1 (Salary & Contact Tracking).
+
+### Fixed
+
+**Analytics zero-state crash**
+- `AnalyticsDashboard.tsx` threw `Cannot read properties of undefined (reading 'total')` when a user had zero applications, since the empty-state guard didn't account for the insights Lambda's message-only response shape (`{"message": "..."}`, no `summary` key)
+- This also left every other page stuck in the error boundary's fallback UI until a hard refresh, since `ErrorBoundary` wasn't keyed to the route
+- `ErrorBoundary` is now keyed to `location.pathname`, so it self-heals on navigation for any future render error, not just this one
+
+**Broken navigation links on Privacy Policy and Terms pages**
+- Logo and "Back to Applytic" links used bare `<a href="/">`, which bypasses React Router's `basename="/applytic/"` and resolved to the wrong domain root on the custom domain deployment
+- Same root cause as a prior fix in `AuthModal.tsx` - now consistently using `<Link to="/">` across both pages (4 instances total)
+
+**FAQ accordion causing whole-page lag**
+- Opening any FAQ question caused visible lag across the entire page, not just the clicked card, on both desktop and mobile
+- Root cause: `backdrop-filter: blur()` on 7 stacked cards forced a live repaint of every shifting sibling on every animation frame
+- FAQ cards now use a solid background instead of blur, and the open/close animation switched from `max-height` to `grid-template-rows` (also fixes a latent bug where long answers could get clipped at 400px)
+
+**Production bundle size**
+- Single JS bundle exceeded Vite's 500kB warning threshold since no route was code-split
+- All page-level routes (`Dashboard`, `KanbanBoard`, `AnalyticsDashboard`, `CoachChat`, `ResumeUpload`, `Landing`, `AuthModal`, `PrivacyPolicy`, `Terms`) now load via `React.lazy()` with `Suspense` boundaries at three levels (protected routes, public routes, modal overlay routes), so users only download the code for the route they visit
+
+### Security
+
+**CodeQL: Bad HTML filtering regexp (`py/bad-tag-filter`)**
+- `interview_prep/handler.py`'s job-description HTML stripper used a regex that could be bypassed by malformed-but-browser-accepted close tags like `</script foo="bar">`
+- Replaced with Python's stdlib `html.parser.HTMLParser`, which tokenizes tag structure instead of pattern-matching - no new dependencies added
+- Closes #40
+
+### Infrastructure
+
+**Google OAuth credentials moved off Secrets Manager**
+- AWS Cost Anomaly Detection flagged ~$0.013/day in ongoing Secrets Manager charges for credentials that are only needed at CDK deploy time (Cognito stores them internally after that)
+- Migrated to SSM Parameter Store (SecureString, Standard tier), which is free at this volume
+- CloudFormation does not support `{{resolve:ssm-secure:...}}` dynamic references on `AWS::Cognito::UserPoolIdentityProvider`'s `ProviderDetails` property - dynamic references are only supported on a CFN-defined property allowlist, and Cognito identity providers aren't on it for this reference type. Resolved via `AwsCustomResource` instead: a CDK-managed Lambda calls `ssm:GetParameter` (with decryption) at deploy time, and the already-resolved value is passed through `Fn::GetAtt`, which has no such restriction
+- Old `applytic/google-oauth` Secrets Manager secret verified and deleted post-deployment (7-day recovery window)
+
+### Content
+
+**Landing page updated for v3.0 features**
+- FeatureShowcase, HowItWorks, DeepDive, and FAQ previously had no mention of Interview Prep or Rejection Pattern Alerts despite both shipping in v3.0 - added across all four sections
+- DeepDive's alternating left/right visual layout restored (Track / Analyze / Prep / Coach zigzag) after adding the new Prep & Alerts section
+
+### Tests
+- 3 new tests in `test_interview_prep.py` covering the HTML-stripping fix
+- 355 backend tests, all passing, 93% coverage (threshold: 70%)
+
+### Upgrade notes
+Self-hosters using Google OAuth: the Secrets Manager to SSM migration requires manually creating two SSM SecureString parameters before deploying (`/applytic/google-oauth/client-id`, `/applytic/google-oauth/client-secret`) - see `cdk/lib/applytic-stack.ts` comments for the exact `aws ssm put-parameter` commands.
+
+---
+
 ## [3.0.0] - 2026-07-26
 
 ### Added

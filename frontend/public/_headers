@@ -2,6 +2,12 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+# Favicons - static, versioned only by content, safe to cache long
+/favicon*
+  Cache-Control: public, max-age=31536000, immutable
+/apple-touch-icon.png
+  Cache-Control: public, max-age=31536000, immutable
+
 # Never cache the HTML entry point
 /index.html
   Cache-Control: no-cache, no-store, must-revalidate

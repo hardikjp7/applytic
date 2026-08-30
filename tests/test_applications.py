@@ -269,6 +269,69 @@ class TestUpdateApplication:
         result = lambda_handler(event, None)
         assert result['statusCode'] == 400
 
+class TestSalaryFields:
+    def test_creates_with_salary_fields(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'expectedSalary': 150000, 'salaryNotes': '150-170k range'
+        })
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 201
+        app = json.loads(result['body'])['application']
+        assert app['expectedSalary'] == 150000
+        assert app['salaryNotes'] == '150-170k range'
+
+    def test_creates_without_salary_defaults_to_none(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied'
+        })
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        app = json.loads(result['body'])['application']
+        assert app['expectedSalary'] is None
+        assert app['offeredSalary'] is None
+
+    def test_negative_salary_returns_400(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'expectedSalary': -5000
+        })
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_salary_over_max_returns_400(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'offeredSalary': 3000000
+        })
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_update_offered_salary(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'},
+                           body={'offeredSalary': 165000})
+        with patch('applications_handler.table') as mt:
+            mt.update_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 200
+
+    def test_clear_offered_salary_with_null(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'},
+                           body={'offeredSalary': None})
+        with patch('applications_handler.table') as mt:
+            mt.update_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 200
+
+    def test_invalid_salary_on_update_returns_400(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'},
+                           body={'expectedSalary': -1})
+        assert lambda_handler(event, None)['statusCode'] == 400
+
 
 class TestUpdateStatus:
     def test_valid_status_update_returns_200(self):

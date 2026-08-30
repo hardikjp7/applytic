@@ -232,6 +232,21 @@ class TestCreateApplicationIntegration:
                 item = table.get_item(Key={'PK': f'USER#{USER_ID}', 'SK': f'APP#{app_id}'})['Item']
                 assert item['entityType'] == 'APPLICATION'
 
+    def test_create_stores_salary_fields(self):
+        with mock_aws():
+            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            table = create_dynamodb_table(dynamodb)
+            with patch('applications_handler_int.table', table):
+                result = create_application(USER_ID, {
+                    'company': 'Stripe', 'role': 'SWE', 'status': 'applied',
+                    'expectedSalary': 140000, 'offeredSalary': 155000, 'salaryNotes': 'negotiated up'
+                }, make_event())
+                app_id = json.loads(result['body'])['application']['appId']
+                item = table.get_item(Key={'PK': f'USER#{USER_ID}', 'SK': f'APP#{app_id}'})['Item']
+                assert item['expectedSalary'] == 140000
+                assert item['offeredSalary'] == 155000
+                assert item['salaryNotes'] == 'negotiated up'
+
 
 class TestListApplicationsIntegration:
 

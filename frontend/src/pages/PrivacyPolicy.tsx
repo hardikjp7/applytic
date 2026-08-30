@@ -1,7 +1,8 @@
 // Privacy Policy page - linked from footer, public route, no auth required.
 // Dark-themed to match the landing page since users arrive from the footer.
 
-import { Link } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -18,6 +19,24 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function PrivacyPolicy() {
+  const navigate = useNavigate()
+
+  // v3.1 fix: with scrollRestoration set to 'manual' in App.tsx, the browser
+  // no longer auto-resets scroll on navigation - without this, arriving here
+  // from partway down the landing page opened this (shorter) page scrolled
+  // to a clamped, wrong position instead of the top.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [])
+
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+    } else {
+      navigate('/')
+    }
+  }
+
   return (
     <div style={{ background: '#0a0a0f', minHeight: '100vh', color: '#f9fafb', fontFamily: 'DM Sans, system-ui, sans-serif' }}>
       {/* Minimal nav */}
@@ -150,9 +169,9 @@ export default function PrivacyPolicy() {
         </Section>
 
         <div className="pt-8 border-t border-white/5 text-xs text-gray-600">
-          <Link to="/" className="text-gray-500 hover:text-indigo-400 transition-colors">
+          <button onClick={handleBack} className="text-gray-500 hover:text-indigo-400 transition-colors">
             &larr; Back to Applytic
-          </Link>
+          </button>
         </div>
       </div>
     </div>

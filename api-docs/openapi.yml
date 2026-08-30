@@ -13,7 +13,7 @@ info:
     no runtime request/response validation is wired against it in v2.2.
     Pydantic models in each Lambda handler remain the source of truth for
     actual input validation.
-  version: "2.1.0"
+  version: "3.1.0"
   contact:
     name: Hardik
     url: https://github.com/hardikjp7/applytic
@@ -40,6 +40,8 @@ tags:
     description: Bedrock-generated interview preparation questions per application
   - name: Alerts
     description: Rejection pattern alerts written by the weekly digest Lambda
+  - name: Contacts
+    description: Recruiter/hiring manager/referral contacts attached to an application (v3.1)
 
 paths:
 
@@ -609,6 +611,95 @@ paths:
                     type: boolean
                     example: true
 
+  # ── Contacts ──────────────────────────────────────────────────────────────
+
+  /applications/{appId}/contacts:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      tags: [Contacts]
+      summary: List all contacts for an application
+      description: Sorted oldest first (ScanIndexForward true) - same pattern as the Notes route.
+      responses:
+        "200":
+          description: Contacts list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contacts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Contact"
+                  count:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Contacts]
+      summary: Add a contact to an application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContactRequest"
+      responses:
+        "201":
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contact:
+                    $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /applications/{appId}/contacts/{contactId}:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+      - name: contactId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Contacts]
+      summary: Delete a specific contact
+      description: Only the user who created the contact may delete it, even if they own the parent application.
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Deleted
+                  contactId:
+                    type: string
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Application or contact not found, or contact belongs to a different user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   # ── Settings ──────────────────────────────────────────────────────────────
 
   /users/settings:
@@ -754,6 +845,21 @@ components:
           type: string
           format: date
           nullable: true
+        expectedSalary:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 2000000
+          description: v3.1. Candidate's expected annual salary in USD.
+        offeredSalary:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 2000000
+          description: v3.1. Offered annual salary in USD, once an offer is received.
+        salaryNotes:
+          type: string
+          description: v3.1. Free text - salary range, equity, or other compensation context.
         createdAt:
           type: string
           format: date-time
@@ -806,6 +912,21 @@ components:
           format: date
           nullable: true
           description: YYYY-MM-DD. Validated server-side; rejects malformed dates with 400.
+        expectedSalary:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 2000000
+          description: v3.1. Validated server-side; rejects values outside 0-2,000,000 with 400.
+        offeredSalary:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 2000000
+          description: v3.1. Same validation as expectedSalary.
+        salaryNotes:
+          type: string
+          default: ""
 
     UpdateApplicationRequest:
       type: object
@@ -833,6 +954,20 @@ components:
           format: date
           nullable: true
           description: Pass null explicitly to clear an existing follow-up date.
+        expectedSalary:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 2000000
+          description: v3.1. Pass null explicitly to clear.
+        offeredSalary:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 2000000
+          description: v3.1. Pass null explicitly to clear - typically cleared/corrected once an offer is finalised or declined.
+        salaryNotes:
+          type: string
 
     UpdateStatusRequest:
       type: object
@@ -1046,6 +1181,45 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StatusHistoryPoint"
+        salaryInsights:
+          $ref: "#/components/schemas/SalaryInsights"
+        salaryDistribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalaryDistributionPoint"
+
+    SalaryInsights:
+      type: object
+      description: v3.1. Aggregate salary stats. Fields are null (not 0) when there's no data for that metric.
+      properties:
+        avgExpectedSalary:
+          type: integer
+          nullable: true
+        avgOfferedSalary:
+          type: integer
+          nullable: true
+        offerVsExpectedDiff:
+          type: integer
+          nullable: true
+          description: Average (offeredSalary - expectedSalary), only across applications with both fields set.
+        offerVsExpectedPct:
+          type: number
+          format: float
+          nullable: true
+        expectedCount:
+          type: integer
+        offeredCount:
+          type: integer
+
+    SalaryDistributionPoint:
+      type: object
+      description: v3.1. One $20k bucket in the expected-salary distribution.
+      properties:
+        range:
+          type: string
+          example: "$120k-140k"
+        count:
+          type: integer
 
     UserSettings:
       type: object
@@ -1127,6 +1301,47 @@ components:
           type: string
           maxLength: 5000
           description: User's answer notes or talking points
+
+    Contact:
+      type: object
+      properties:
+        contactId:
+          type: string
+          format: uuid
+        appId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        linkedinUrl:
+          type: string
+        role:
+          type: string
+          example: Recruiter
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateContactRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        email:
+          type: string
+          maxLength: 320
+          default: ""
+        linkedinUrl:
+          type: string
+          default: ""
+        role:
+          type: string
+          maxLength: 100
+          default: ""
 
     PatternAlert:
       type: object

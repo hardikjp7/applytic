@@ -49,7 +49,7 @@ Relates to #
 
 ## Testing Done
 
-- [ ] All 48 existing tests pass (`python -m pytest tests/ -v`)
+- [ ] All 355 existing tests pass (`python -m pytest tests/ -v`)
 - [ ] New tests added for any new Lambda logic
 - [ ] `npm run build` passes with no TypeScript errors
 - [ ] Manually tested in local dev (`npm run dev`)
