@@ -4,7 +4,7 @@
        App routes (/dashboard, /board, etc.) require auth and are excluded. -->
   <url>
     <loc>https://hardikjp7.github.io/applytic</loc>
-    <lastmod>2026-06-22</lastmod>
+    <lastmod>2026-08-30</lastmod>
     <changefreq>monthly</changefreq>
     <priority>1.0</priority>
   </url>

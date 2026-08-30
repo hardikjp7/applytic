@@ -1,6 +1,10 @@
 # Applytic
 
 ![CI/CD](https://github.com/hardikjp7/applytic/actions/workflows/deploy.yml/badge.svg)
+![Version](https://img.shields.io/badge/version-v3.1.0-534ab7)
+![License](https://img.shields.io/badge/license-Apache%202.0-blue)
+
+**Current version:** v3.1.0 (Salary & Contact Tracking) - released August 2026 - see [CHANGELOG.md](./CHANGELOG.md) for full version history.
 
 > AI-powered job application tracker that learns from your rejections.
 
@@ -16,6 +20,26 @@
 Applytic tracks every job application you submit, detects patterns across rejections (which resume version converts best, which source channel works, which company sizes respond), and uses Amazon Bedrock to turn that data into actionable coaching - delivered as a chat interface, tailored interview prep, rejection pattern alerts, and a weekly email digest.
 
 Built end-to-end on AWS as a production-grade application. Every service is serverless, infrastructure is code, and every push auto-deploys via GitHub Actions.
+
+---
+
+## Table of Contents
+
+- [Why I Built This](#why-i-built-this)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Key Engineering Decisions](#key-engineering-decisions)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [DynamoDB Single-Table Design](#dynamodb-single-table-design)
+- [API Routes](#api-routes)
+- [Scale and Cost](#scale-and-cost)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Local Setup](#local-setup)
+- [Issues Encountered and Fixed](#issues-encountered-and-fixed)
+- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [Author](#author)
 
 ---
 
@@ -81,6 +105,16 @@ So I instrumented my own job search. Every application became a data point. Afte
 - Upload multiple PDF versions to S3 via presigned URLs
 - Tag each application with which version was used
 - Analytics shows conversion rate per version side-by-side
+
+**Salary tracking**
+- Log expected salary on any application, offered salary once you get an offer
+- Analytics shows average expected vs. offered salary and the average gap between them
+- Expected-salary distribution chart across your whole pipeline
+- AI coach can answer "am I targeting the right salary range?"
+
+**Contact tracking**
+- Add recruiter, hiring manager, or referral contacts to any application - name, email, LinkedIn, role
+- Quick access from the application detail view for follow-ups and referral networking
 
 **UI / UX**
 - Full dark mode with system preference detection, persisted to localStorage
@@ -315,15 +349,16 @@ applytic/
 │   ├── settings/           # Weekly goal + streak tracking
 │   ├── notes/              # Per-application notes timeline
 │   ├── cognito_verify/     # Post Confirmation trigger - SES email verification
+│   ├── contacts/           # Recruiter/contact sub-resource per application
 │   └── shared_layer/       # Lambda Layer - shared middleware, Pydantic, X-Ray
 ├── frontend/               # React + Vite + Tailwind CSS
 │   └── src/
 │       ├── components/     # Kanban, Analytics, Chat, Sidebar, Resume, CSV
-│       ├── hooks/          # useApplications, useSettings, useNotes
+│       ├── hooks/          # useApplications, useSettings, useNotes, useContacts
 │       ├── lib/            # API client, Amplify config, theme, csv utils
 │       ├── pages/          # Dashboard
 │       └── types/          # Shared TypeScript types
-├── tests/                  # 355 pytest tests (93% coverage)
+├── tests/                  # 419 pytest tests (93.2% coverage)
 │   ├── test_applications.py
 │   ├── test_applications_integration.py
 │   ├── test_insights.py
@@ -391,6 +426,10 @@ GET    /v1/applications/{appId}/interview-prep
 PUT    /v1/applications/{appId}/interview-prep/{questionId}
 GET    /v1/users/alerts
 PUT    /v1/users/alerts/{alertId}/dismiss
+# v3.1 additions
+GET    /v1/applications/{appId}/contacts
+POST   /v1/applications/{appId}/contacts
+DELETE /v1/applications/{appId}/contacts/{contactId}
 ```
 
 All routes protected by Cognito JWT authorizer.
@@ -408,8 +447,8 @@ All routes protected by Cognito JWT authorizer.
 | Cost at 0 users | ~$0/month |
 | Cost at 100 users | ~$2-5/month |
 | Cost at 1,000 users | ~$15-30/month |
-| Backend test suite | 355 tests, 93% coverage (70% threshold) |
-| Frontend test suite | 31 Vitest tests |
+| Backend test suite | 419 tests, 70% coverage threshold (93.2% actual) |
+| Frontend test suite | 34 Vitest tests |
 | Full CDK deploy from scratch | under 3 minutes |
 
 ---

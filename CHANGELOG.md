@@ -4,6 +4,47 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.1.0] - 2026-08-30
+
+### Added
+
+**Salary Tracking**
+- `expectedSalary`, `offeredSalary` (nullable int, 0-2,000,000) and `salaryNotes` (free text) added to the applications schema
+- Pydantic validation in `applications/handler.py` on both create and update, including explicit-null clearing for both salary fields (mirrors the existing `followUpDate` pattern)
+- `insights/handler.py`: `_compute_salary_distribution()` buckets applications into $20k expected-salary ranges; `_compute_salary_insights()` computes average expected/offered salary and the average offer-vs-expectation gap (both count and percentage), scoped only to applications with both fields set
+- Both wired into `compute_patterns()` output as `salaryInsights` and `salaryDistribution`
+- `build_context_for_llm()` extended with a "Salary data" section so the AI coach can answer questions like "am I targeting the right salary range?"
+- Frontend: expected salary + salary notes fields in `AddApplicationModal.tsx`; expected/offered salary + notes in `ApplicationDetailModal.tsx` edit form; salary insights banner + expected-salary distribution bar chart in `AnalyticsDashboard.tsx`
+- 39 new tests in `tests/test_insights_v31.py`, plus salary-field tests added to `tests/test_applications.py` and `tests/test_applications_integration.py`
+
+**Contact Tracking**
+- New `applytic-contacts` Lambda (`lambdas/contacts/handler.py`) - `GET/POST /applications/{appId}/contacts`, `DELETE /applications/{appId}/contacts/{contactId}`
+- `CONTACT` DynamoDB entity: `PK=APP#{appId}`, `SK=CONTACT#{timestamp}#{contactId}` - name (required), email, LinkedIn URL, role (all optional free text)
+- Ownership verification mirrors `notes/handler.py` exactly - checks the parent APPLICATION record exists under `USER#{userId}` before any read/write
+- CDK: new Lambda (ARM64, 512MB, 30s), 3 new API Gateway routes, X-Ray IAM, CloudWatch error alarm, dashboard widget entries
+- Frontend: new `useContacts.ts` React Query hook (mirrors `useNotes.ts`); Contacts section in `ApplicationDetailModal.tsx` with inline add form and hover-to-delete list
+- New `tests/test_contacts.py` - 30 unit tests
+
+### Fixed
+
+**Google Search favicon not displaying**
+- Site only served `favicon.svg` with no PNG/ICO fallback and a referenced-but-nonexistent `apple-touch-icon.png`. Google's Search favicon crawler has unreliable SVG support and expects a static PNG/ICO at a stable URL, ideally a multiple of 48px
+- Generated `favicon.ico` (16/32/48px embedded), PNG favicons at 16/32/48/96/192/512px, and a real `apple-touch-icon.png` (180px), all matching the existing purple rounded-square "A" mark
+- `index.html` `<link rel="icon">` block extended with PNG/ICO fallbacks alongside the existing SVG; `_headers` updated to long-cache the new static assets
+
+**Privacy/Terms "Back to Applytic" returned to the wrong scroll position**
+- Returning from `/privacy` or `/terms` landed on the landing page's Features section instead of wherever the user had scrolled to before navigating away
+- Root cause: the browser's native `history.scrollRestoration` ('auto' by default) tracks scroll per history entry independently of React Router and reapplies a stale offset against freshly re-mounted (and lazy-loaded) content, which doesn't line up
+- Fix: `App.tsx` sets `window.history.scrollRestoration = 'manual'`; `Landing.tsx` now saves scroll position via a live `scroll` listener (not unmount-cleanup, which is unreliable under React 18 StrictMode's dev-only double-invoke) and restores it only on `POP` navigation (back button), retried across a few animation frames so lazy-loaded/scroll-reveal sections have settled first. `PrivacyPolicy.tsx`/`Terms.tsx` explicitly scroll to top on mount, since manual restoration mode means the browser no longer does this automatically. "Back to Applytic" changed from `<Link to="/">` to a `navigate(-1)` handler so it triggers real back-navigation (falls back to `navigate('/')` if there's no history to go back to)
+
+**CSV import missing new required Application fields**
+- `KanbanBoard.tsx`'s CSV import path builds an `Application`-shaped object for `create()`; after `expectedSalary`/`offeredSalary`/`salaryNotes` were added to the type, this failed to compile
+- Fix: import defaults all three to empty/null - CSV import does not yet support salary columns
+
+**Commit scope:** `lambdas/contacts/` (new), `lambdas/applications/`, `lambdas/insights/`, `cdk/`, `frontend/src/`, `frontend/public/`, `frontend/index.html`, `tests/`, `api/`, `api-docs/`
+
+---
+
 ## [3.0.1] - 2026-08-08
 
 Patch release addressing bugs found after v3.0 shipped, a GitHub CodeQL security finding, and an AWS cost anomaly. No new user-facing features - all fixes and hardening ahead of v3.1 (Salary & Contact Tracking).
