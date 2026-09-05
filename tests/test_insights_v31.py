@@ -141,7 +141,7 @@ class TestComputeSalaryDistribution:
         apps = [make_app("a1", expected_salary=125000)]
         result = _compute_salary_distribution(apps)
         assert len(result) == 1
-        assert result[0]["range"] == "$120k-140k"
+        assert result[0]["range"] == "120k-140k"
         assert result[0]["count"] == 1
 
     def test_multiple_apps_same_bucket_aggregated(self):
@@ -152,7 +152,7 @@ class TestComputeSalaryDistribution:
         ]
         result = _compute_salary_distribution(apps)
         assert len(result) == 1
-        assert result[0]["range"] == "$100k-120k"
+        assert result[0]["range"] == "100k-120k"
         assert result[0]["count"] == 3
 
     def test_buckets_sorted_ascending(self):
@@ -163,7 +163,7 @@ class TestComputeSalaryDistribution:
         ]
         result = _compute_salary_distribution(apps)
         ranges = [r["range"] for r in result]
-        assert ranges == ["$100k-120k", "$140k-160k", "$180k-200k"]
+        assert ranges == ["100k-120k", "140k-160k", "180k-200k"]
 
     def test_apps_with_salary_and_without_mixed(self):
         apps = [
@@ -177,7 +177,7 @@ class TestComputeSalaryDistribution:
     def test_exact_bucket_boundary_value(self):
         apps = [make_app("a1", expected_salary=120000)]
         result = _compute_salary_distribution(apps)
-        assert result[0]["range"] == "$120k-140k"
+        assert result[0]["range"] == "120k-140k"
 
 
 # ── _compute_salary_insights ───────────────────────────────────────────────────
@@ -291,14 +291,14 @@ class TestBuildContextForLlmSalarySection:
         patterns = compute_patterns(apps)
         context = build_context_for_llm(apps, patterns)
         assert "Salary data" in context
-        assert "$120,000" in context
+        assert "120,000 USD" in context
 
     def test_includes_offer_comparison_when_both_present(self):
         apps = [make_app("a1", status="offer", expected_salary=120000, offered_salary=135000)]
         patterns = compute_patterns(apps)
         context = build_context_for_llm(apps, patterns)
         assert "offer vs expectation" in context
-        assert "$15,000" in context or "+$15,000" in context
+        assert "15,000 USD" in context or "+15,000 USD" in context
 
     def test_no_salary_section_when_no_salary_data(self):
         apps = [make_app("a1")]

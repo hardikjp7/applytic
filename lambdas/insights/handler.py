@@ -18,8 +18,9 @@ v3.0 additions to build_context_for_llm():
 """
 import json
 import os
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
@@ -242,28 +243,74 @@ def _compute_status_history(apps: list) -> list:
 
 SALARY_BUCKET_SIZE = 20000
 
+# v3.1.1: bucket size varies by currency since raw magnitudes differ wildly
+# (e.g. 20k is a meaningful bucket step in USD but far too fine-grained for
+# INR, where lakhs-scale figures are typical). Not a real conversion table -
+# just picks a sensible bucket granularity per currency.
+CURRENCY_BUCKET_SIZES = {
+    "USD": 20000,
+    "EUR": 20000,
+    "GBP": 20000,
+    "CAD": 20000,
+    "AUD": 20000,
+    "INR": 500000,
+}
+DEFAULT_SALARY_CURRENCY = "USD"
+
+
+def _get_salary_currency(app: dict) -> str:
+    """Existing records predate the salaryCurrency field - default to USD."""
+    return app.get("salaryCurrency") or DEFAULT_SALARY_CURRENCY
+
+
+def _determine_dominant_currency(apps_with_salary: list) -> Optional[str]:
+    """
+    Returns the most common currency among applications that have salary
+    data, or None if there's no salary data at all. Ties break on whichever
+    currency Counter encounters first (stable but not semantically special).
+    """
+    if not apps_with_salary:
+        return None
+    counts = Counter(_get_salary_currency(a) for a in apps_with_salary)
+    return counts.most_common(1)[0][0]
+
 
 def _compute_salary_distribution(apps: list) -> list:
     """
-    Buckets applications by expectedSalary into $20k ranges.
-    Apps without expectedSalary are excluded entirely - this is a distribution
-    of stated expectations, not a count of all applications.
+    Buckets applications by expectedSalary, restricted to the dominant
+    currency across the user's salary data (v3.1.1: option A - no exchange
+    rate conversion, currency-aware scoping only). Applications with
+    expectedSalary set in a non-dominant currency are excluded, same as in
+    _compute_salary_insights.
 
     Returns list of {range, count}, sorted ascending by bucket start.
     """
-    with_salary = [a for a in apps if a.get("expectedSalary") is not None]
-    if not with_salary:
+    apps_with_salary = [
+        a for a in apps
+        if a.get("expectedSalary") is not None or a.get("offeredSalary") is not None
+    ]
+    dominant_currency = _determine_dominant_currency(apps_with_salary)
+    if dominant_currency is None:
+        return []
+
+    bucket_size = CURRENCY_BUCKET_SIZES.get(dominant_currency, SALARY_BUCKET_SIZE)
+
+    with_expected = [
+        a for a in apps_with_salary
+        if a.get("expectedSalary") is not None and _get_salary_currency(a) == dominant_currency
+    ]
+    if not with_expected:
         return []
 
     buckets: dict[int, int] = defaultdict(int)
-    for a in with_salary:
-        bucket_start = (int(a["expectedSalary"]) // SALARY_BUCKET_SIZE) * SALARY_BUCKET_SIZE
+    for a in with_expected:
+        bucket_start = (int(a["expectedSalary"]) // bucket_size) * bucket_size
         buckets[bucket_start] += 1
 
     result = []
     for start in sorted(buckets.keys()):
         result.append({
-            "range": f"${start // 1000}k-{(start + SALARY_BUCKET_SIZE) // 1000}k",
+            "range": f"{start // 1000}k-{(start + bucket_size) // 1000}k",
             "count": buckets[start],
         })
     return result
@@ -271,16 +318,40 @@ def _compute_salary_distribution(apps: list) -> list:
 
 def _compute_salary_insights(apps: list) -> dict:
     """
-    Computes average expected salary, average offered salary, and the
-    average gap between offer and expectation (only for applications that
-    have BOTH fields set - i.e. an offer was made and an expectation was
-    recorded up front).
+    Computes average expected/offered salary and the average offer-vs-
+    expectation gap, restricted to the dominant currency across the user's
+    salary data (v3.1.1). Applications with salary data in a different
+    currency are counted in excludedCurrencyCount but not averaged in -
+    blending different currencies' raw numbers would be meaningless without
+    conversion, which is explicitly out of scope for v3.1.1.
 
-    All values are None when there's no data for that metric, rather than 0,
-    so the frontend/LLM context builder can distinguish "no data" from "$0".
+    All numeric values are None when there's no data for that metric,
+    rather than 0, so the frontend/LLM context builder can distinguish
+    "no data" from "$0".
     """
-    with_expected = [a for a in apps if a.get("expectedSalary") is not None]
-    with_offered = [a for a in apps if a.get("offeredSalary") is not None]
+    apps_with_salary = [
+        a for a in apps
+        if a.get("expectedSalary") is not None or a.get("offeredSalary") is not None
+    ]
+    dominant_currency = _determine_dominant_currency(apps_with_salary)
+
+    if dominant_currency is None:
+        return {
+            "avgExpectedSalary": None,
+            "avgOfferedSalary": None,
+            "offerVsExpectedDiff": None,
+            "offerVsExpectedPct": None,
+            "expectedCount": 0,
+            "offeredCount": 0,
+            "dominantCurrency": None,
+            "excludedCurrencyCount": 0,
+        }
+
+    in_currency = [a for a in apps_with_salary if _get_salary_currency(a) == dominant_currency]
+    excluded_count = len(apps_with_salary) - len(in_currency)
+
+    with_expected = [a for a in in_currency if a.get("expectedSalary") is not None]
+    with_offered = [a for a in in_currency if a.get("offeredSalary") is not None]
     both = [a for a in with_expected if a.get("offeredSalary") is not None]
 
     avg_expected = round(sum(a["expectedSalary"] for a in with_expected) / len(with_expected)) if with_expected else None
@@ -304,6 +375,8 @@ def _compute_salary_insights(apps: list) -> dict:
         "offerVsExpectedPct": pct,
         "expectedCount": len(with_expected),
         "offeredCount": len(with_offered),
+        "dominantCurrency": dominant_currency,
+        "excludedCurrencyCount": excluded_count,
     }
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
@@ -569,17 +642,20 @@ def build_context_for_llm(apps: list, patterns: dict, enrichment: dict = None) -
     for size, data in patterns["breakdowns"]["byCompanySize"].items():
         lines.append(f"  {size}: {data['responseRate']}% ({data['total']} apps)")
 
-    # v3.1: salary insights
+    # v3.1.1: salary insights, now currency-aware
     salary = patterns.get("salaryInsights", {})
     if salary.get("expectedCount", 0) > 0 or salary.get("offeredCount", 0) > 0:
-        lines.append("\nSalary data:")
+        currency = salary.get("dominantCurrency") or "USD"
+        lines.append(f"\nSalary data (in {currency}):")
         if salary.get("avgExpectedSalary") is not None:
-            lines.append(f"  Average expected salary: ${salary['avgExpectedSalary']:,} (across {salary['expectedCount']} applications)")
+            lines.append(f"  Average expected salary: {salary['avgExpectedSalary']:,} {currency} (across {salary['expectedCount']} applications)")
         if salary.get("avgOfferedSalary") is not None:
-            lines.append(f"  Average offered salary: ${salary['avgOfferedSalary']:,} (across {salary['offeredCount']} offers)")
+            lines.append(f"  Average offered salary: {salary['avgOfferedSalary']:,} {currency} (across {salary['offeredCount']} offers)")
         if salary.get("offerVsExpectedDiff") is not None:
             sign = "+" if salary["offerVsExpectedDiff"] >= 0 else ""
-            lines.append(f"  Average offer vs expectation: {sign}${salary['offerVsExpectedDiff']:,} ({sign}{salary['offerVsExpectedPct']}%)")
+            lines.append(f"  Average offer vs expectation: {sign}{salary['offerVsExpectedDiff']:,} {currency} ({sign}{salary['offerVsExpectedPct']}%)")
+        if salary.get("excludedCurrencyCount", 0) > 0:
+            lines.append(f"  Note: {salary['excludedCurrencyCount']} application(s) with salary data in a different currency were excluded from these stats.")
 
     # v3.0: active rejection pattern alerts
     if alerts:
