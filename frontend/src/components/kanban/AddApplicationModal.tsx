@@ -14,8 +14,9 @@ const defaultForm = {
   source: 'linkedin' as const, resumeVersion: '',
   companySize: '' as const, jobDescUrl: '', notes: '',
   followUpDate: null as string | null,
-  expectedSalary: '' as string,  // v3.1 - string in form state, converted on submit
-  salaryNotes: '',  // v3.1
+  expectedSalary: '' as string,
+  salaryCurrency: 'USD' as const,  // v3.1.1
+  salaryNotes: '',
 }
 
 const inp = 'w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500'
@@ -101,18 +102,32 @@ export default function AddApplicationModal({ onClose, onSave }: Props) {
               <p className="text-xs text-gray-400 mt-1">Optional - get a reminder to follow up.</p>
             </div>
           </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Expected salary</label>
-              <input
-                type="number"
-                min={0}
-                max={2000000}
-                className={inp}
-                value={form.expectedSalary}
-                onChange={e => set('expectedSalary', e.target.value)}
-                placeholder="140000"
-              />
+              <div className="flex gap-2">
+                <select
+                  className="border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+                  value={form.salaryCurrency}
+                  onChange={e => set('salaryCurrency', e.target.value)}
+                >
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="INR">INR</option>
+                  <option value="CAD">CAD</option>
+                  <option value="AUD">AUD</option>
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={100000000}
+                  className={inp}
+                  value={form.expectedSalary}
+                  onChange={e => set('expectedSalary', e.target.value)}
+                  placeholder="140000"
+                />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Salary notes</label>

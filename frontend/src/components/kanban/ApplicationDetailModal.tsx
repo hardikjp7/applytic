@@ -41,9 +41,10 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
     notes: app.notes,
     dateApplied: app.dateApplied,
     followUpDate: app.followUpDate ?? '',   // Bug 1 fix: add followUpDate to form
-    expectedSalary: app.expectedSalary != null ? String(app.expectedSalary) : '',  // v3.1
-    offeredSalary: app.offeredSalary != null ? String(app.offeredSalary) : '',  // v3.1
-    salaryNotes: app.salaryNotes ?? '',  // v3.1
+    expectedSalary: app.expectedSalary != null ? String(app.expectedSalary) : '',
+    offeredSalary: app.offeredSalary != null ? String(app.offeredSalary) : '',
+    salaryCurrency: app.salaryCurrency ?? 'USD',  // v3.1.1
+    salaryNotes: app.salaryNotes ?? '',
   })
   const [noteInput, setNoteInput] = useState('')
 
@@ -260,10 +261,25 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
               <Field label="Salary" dark>
                 {editing ? (
                   <div className="grid grid-cols-2 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-xs text-gray-400 mb-1">Currency</label>
+                      <select
+                        className={inp}
+                        value={form.salaryCurrency}
+                        onChange={e => set('salaryCurrency', e.target.value)}
+                      >
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="INR">INR</option>
+                        <option value="CAD">CAD</option>
+                        <option value="AUD">AUD</option>
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-xs text-gray-400 mb-1">Expected</label>
                       <input
-                        type="number" min={0} max={2000000}
+                        type="number" min={0} max={100000000}
                         className={inp}
                         value={form.expectedSalary}
                         onChange={e => set('expectedSalary', e.target.value)}
@@ -273,7 +289,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                     <div>
                       <label className="block text-xs text-gray-400 mb-1">Offered</label>
                       <input
-                        type="number" min={0} max={2000000}
+                        type="number" min={0} max={100000000}
                         className={inp}
                         value={form.offeredSalary}
                         onChange={e => set('offeredSalary', e.target.value)}
@@ -294,8 +310,8 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                   <div className="space-y-0.5">
                     {(app.expectedSalary != null || app.offeredSalary != null) ? (
                       <div className="flex items-center gap-3 text-sm text-gray-800 dark:text-gray-200">
-                        {app.expectedSalary != null && <span>${app.expectedSalary.toLocaleString()} expected</span>}
-                        {app.offeredSalary != null && <span className="text-green-600 dark:text-green-400">${app.offeredSalary.toLocaleString()} offered</span>}
+                        {app.expectedSalary != null && <span>{app.expectedSalary.toLocaleString()} {app.salaryCurrency} expected</span>}
+                        {app.offeredSalary != null && <span className="text-green-600 dark:text-green-400">{app.offeredSalary.toLocaleString()} {app.salaryCurrency} offered</span>}
                       </div>
                     ) : (
                       <p className="text-sm text-gray-400">-</p>

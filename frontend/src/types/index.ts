@@ -22,6 +22,7 @@ export interface Application {
   expectedSalary: number | null  // v3.1
   offeredSalary: number | null  // v3.1
   salaryNotes: string  // v3.1
+  salaryCurrency: 'USD' | 'EUR' | 'GBP' | 'INR' | 'CAD' | 'AUD'  // v3.1.1
   createdAt: string
   updatedAt: string
 }
@@ -71,6 +72,8 @@ export interface SalaryInsights {
   offerVsExpectedPct: number | null
   expectedCount: number
   offeredCount: number
+  dominantCurrency: string | null  // v3.1.1
+  excludedCurrencyCount: number  // v3.1.1
 }
 
 // v3.1: one bucket in the expected-salary distribution

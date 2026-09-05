@@ -165,6 +165,7 @@ export default function KanbanBoard() {
           followUpDate: row.followUpDate,
           expectedSalary: null,  // v3.1 - not supported via CSV import yet
           offeredSalary: null,   // v3.1
+          salaryCurrency: 'USD',  // v3.1.1 - not supported via CSV import yet
           salaryNotes: '',       // v3.1
         })
         imported++

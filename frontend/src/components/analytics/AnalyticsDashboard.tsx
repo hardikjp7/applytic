@@ -173,29 +173,36 @@ export default function AnalyticsDashboard() {
       {/* v3.1: Salary insights */}
       {(patterns.salaryInsights?.expectedCount > 0 || patterns.salaryInsights?.offeredCount > 0) && (
         <div className="bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-800/30 rounded-xl p-4">
-          <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide mb-3">Salary insights</p>
+          <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide mb-3">
+            Salary insights {patterns.salaryInsights.dominantCurrency ? `(${patterns.salaryInsights.dominantCurrency})` : ''}
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
             {patterns.salaryInsights.avgExpectedSalary != null && (
               <div>
                 <p className="text-gray-400 text-xs mb-0.5">Avg expected ({patterns.salaryInsights.expectedCount} apps)</p>
-                <p className="font-medium text-green-800 dark:text-green-300">${patterns.salaryInsights.avgExpectedSalary.toLocaleString()}</p>
+                <p className="font-medium text-green-800 dark:text-green-300">{patterns.salaryInsights.avgExpectedSalary.toLocaleString()} {patterns.salaryInsights.dominantCurrency}</p>
               </div>
             )}
             {patterns.salaryInsights.avgOfferedSalary != null && (
               <div>
                 <p className="text-gray-400 text-xs mb-0.5">Avg offered ({patterns.salaryInsights.offeredCount} offers)</p>
-                <p className="font-medium text-green-800 dark:text-green-300">${patterns.salaryInsights.avgOfferedSalary.toLocaleString()}</p>
+                <p className="font-medium text-green-800 dark:text-green-300">{patterns.salaryInsights.avgOfferedSalary.toLocaleString()} {patterns.salaryInsights.dominantCurrency}</p>
               </div>
             )}
             {patterns.salaryInsights.offerVsExpectedDiff != null && (
               <div>
                 <p className="text-gray-400 text-xs mb-0.5">Offer vs expectation</p>
                 <p className="font-medium text-green-800 dark:text-green-300">
-                  {patterns.salaryInsights.offerVsExpectedDiff >= 0 ? '+' : ''}${patterns.salaryInsights.offerVsExpectedDiff.toLocaleString()} ({patterns.salaryInsights.offerVsExpectedPct}%)
+                  {patterns.salaryInsights.offerVsExpectedDiff >= 0 ? '+' : ''}{patterns.salaryInsights.offerVsExpectedDiff.toLocaleString()} {patterns.salaryInsights.dominantCurrency} ({patterns.salaryInsights.offerVsExpectedPct}%)
                 </p>
               </div>
             )}
           </div>
+          {patterns.salaryInsights.excludedCurrencyCount > 0 && (
+            <p className="text-xs text-green-600/70 dark:text-green-400/60 mt-3">
+              {patterns.salaryInsights.excludedCurrencyCount} application{patterns.salaryInsights.excludedCurrencyCount !== 1 ? 's' : ''} in a different currency excluded from these stats.
+            </p>
+          )}
         </div>
       )}
 
@@ -352,7 +359,9 @@ export default function AnalyticsDashboard() {
         {/* v3.1: Salary distribution */}
         {salaryDistributionData.length > 0 && (
           <div className={`${card} p-5`}>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Expected salary distribution</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Expected salary distribution {patterns.salaryInsights?.dominantCurrency ? `(${patterns.salaryInsights.dominantCurrency})` : ''}
+            </p>
             <p className="text-xs text-gray-400 mb-4">Applications bucketed by expected salary</p>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={salaryDistributionData} barSize={28}>
