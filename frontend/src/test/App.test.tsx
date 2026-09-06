@@ -224,6 +224,14 @@ describe('AddApplicationModal', () => {
     expect(mockOnSave.mock.calls[0][0].expectedSalary).toBeNull()
     expect(mockOnSave.mock.calls[0][0].offeredSalary).toBeNull()
   })
+
+  it('defaults salary currency to USD and includes it when saving', async () => {
+    renderModalWithQueryClient(<AddApplicationModal onClose={mockOnClose} onSave={mockOnSave} />)
+    await userEvent.type(screen.getByPlaceholderText('Google'), 'Stripe')
+    await userEvent.type(screen.getByPlaceholderText('AI Engineer'), 'Eng')
+    await userEvent.click(screen.getByRole('button', { name: /add application/i }))
+    expect(mockOnSave.mock.calls[0][0].salaryCurrency).toBe('USD')
+  })
 })
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

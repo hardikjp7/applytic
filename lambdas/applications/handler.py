@@ -43,6 +43,7 @@ class CreateApplicationRequest(BaseModel):
     expectedSalary: Optional[int] = None  # v3.1
     offeredSalary: Optional[int] = None  # v3.1
     salaryNotes: Optional[str] = ""  # v3.1
+    salaryCurrency: Literal["USD", "EUR", "GBP", "INR", "CAD", "AUD"] = "USD"  # v3.1.1
 
     @field_validator("company", "role")
     @classmethod
@@ -68,8 +69,12 @@ class CreateApplicationRequest(BaseModel):
     def salary_in_range(cls, v: Optional[int]) -> Optional[int]:
         if v is None:
             return v
-        if v < 0 or v > 2_000_000:
-            raise ValueError("salary must be between 0 and 2,000,000")
+        # v3.1.1: raised from 2,000,000 - no currency field existed at first,
+        # and even with currency support, one fixed number can't be a
+        # sensible cap for both USD and INR-scale figures. 100,000,000 is
+        # just a sanity ceiling against fat-finger entry, not a real limit.
+        if v < 0 or v > 100_000_000:
+            raise ValueError("salary must be between 0 and 100,000,000")
         return v
 
 
@@ -86,6 +91,7 @@ class UpdateApplicationRequest(BaseModel):
     expectedSalary: Optional[int] = None  # v3.1: can update or clear (pass null to clear)
     offeredSalary: Optional[int] = None  # v3.1: can update or clear (pass null to clear)
     salaryNotes: Optional[str] = None  # v3.1
+    salaryCurrency: Optional[Literal["USD", "EUR", "GBP", "INR", "CAD", "AUD"]] = None  # v3.1.1
 
     @field_validator("followUpDate")
     @classmethod
@@ -104,8 +110,12 @@ class UpdateApplicationRequest(BaseModel):
     def salary_in_range(cls, v: Optional[int]) -> Optional[int]:
         if v is None:
             return v
-        if v < 0 or v > 2_000_000:
-            raise ValueError("salary must be between 0 and 2,000,000")
+        # v3.1.1: raised from 2,000,000 - no currency field existed at first,
+        # and even with currency support, one fixed number can't be a
+        # sensible cap for both USD and INR-scale figures. 100,000,000 is
+        # just a sanity ceiling against fat-finger entry, not a real limit.
+        if v < 0 or v > 100_000_000:
+            raise ValueError("salary must be between 0 and 100,000,000")
         return v
 
 
@@ -160,6 +170,7 @@ def create_application(user_id: str, body: dict, event: dict) -> dict:
         "expectedSalary": req.expectedSalary,  # v3.1
         "offeredSalary": req.offeredSalary,  # v3.1
         "salaryNotes": req.salaryNotes,  # v3.1
+        "salaryCurrency": req.salaryCurrency,  # v3.1.1
         "createdAt": ts, "updatedAt": ts,
         "entityType": "APPLICATION",
     }
@@ -190,6 +201,7 @@ def update_application(user_id: str, app_id: str, body: dict, event: dict) -> di
         "company", "role", "jobDescUrl", "resumeVersion", "source",
         "companySize", "notes", "dateApplied", "followUpDate",  # v2.0
         "expectedSalary", "offeredSalary", "salaryNotes",  # v3.1
+        "salaryCurrency",  # v3.1.1
     ]
     updates = {k: v for k, v in req.model_dump(exclude_none=True).items() if k in allowed}
 

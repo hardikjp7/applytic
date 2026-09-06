@@ -220,6 +220,7 @@ docs: add CONTRIBUTING.md and PR template
 - Define all resources in `cdk/lib/applytic-stack.ts`
 - Never hardcode account IDs, bucket names, or ARNs — use CDK tokens and references
 - IAM policies should follow least-privilege — avoid `Resource: "*"` unless required (Bedrock inference profiles currently require it)
+- When a Lambda's handler code gains a new write path (put_item/update_item/delete_item), verify the corresponding CDK IAM grant is upgraded to match (e.g. grantReadData → grantReadWriteData) - this is not caught by the mocked-table unit test suite and can silently fail only in production.
 
 ---
 

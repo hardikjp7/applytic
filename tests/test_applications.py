@@ -304,9 +304,21 @@ class TestSalaryFields:
     def test_salary_over_max_returns_400(self):
         event = make_event('POST', '/applications', body={
             'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
-            'offeredSalary': 3000000
+            'offeredSalary': 150000000
         })
         assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_salary_accepts_large_non_usd_style_figures(self):
+        # v3.1.1 regression test - values like 25,00,000 INR must not be
+        # rejected just because they look large in USD terms
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'expectedSalary': 2500000, 'offeredSalary': 1800000
+        })
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 201
 
     def test_update_offered_salary(self):
         event = make_event('PUT', '/applications/app-123',
@@ -331,6 +343,48 @@ class TestSalaryFields:
                            path_params={'appId': 'app-123'},
                            body={'expectedSalary': -1})
         assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_creates_with_default_currency_usd(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'expectedSalary': 150000
+        })
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        app = json.loads(result['body'])['application']
+        assert app['salaryCurrency'] == 'USD'
+
+    def test_creates_with_explicit_currency(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Infosys', 'role': 'Eng', 'status': 'applied',
+            'expectedSalary': 2500000, 'offeredSalary': 1800000,
+            'salaryCurrency': 'INR'
+        })
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 201
+        app = json.loads(result['body'])['application']
+        assert app['salaryCurrency'] == 'INR'
+        assert app['expectedSalary'] == 2500000
+        assert app['offeredSalary'] == 1800000
+
+    def test_invalid_currency_returns_400(self):
+        event = make_event('POST', '/applications', body={
+            'company': 'Stripe', 'role': 'Eng', 'status': 'applied',
+            'salaryCurrency': 'XYZ'
+        })
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_update_currency(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'},
+                           body={'salaryCurrency': 'EUR'})
+        with patch('applications_handler.table') as mt:
+            mt.update_item.return_value = {}
+            result = lambda_handler(event, None)
+        assert result['statusCode'] == 200
 
 
 class TestUpdateStatus:

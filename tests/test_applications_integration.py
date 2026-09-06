@@ -247,6 +247,32 @@ class TestCreateApplicationIntegration:
                 assert item['offeredSalary'] == 155000
                 assert item['salaryNotes'] == 'negotiated up'
 
+    def test_create_stores_salary_currency(self):
+        with mock_aws():
+            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            table = create_dynamodb_table(dynamodb)
+            with patch('applications_handler_int.table', table):
+                result = create_application(USER_ID, {
+                    'company': 'Infosys', 'role': 'SWE', 'status': 'applied',
+                    'expectedSalary': 2500000, 'salaryCurrency': 'INR'
+                }, make_event())
+                app_id = json.loads(result['body'])['application']['appId']
+                item = table.get_item(Key={'PK': f'USER#{USER_ID}', 'SK': f'APP#{app_id}'})['Item']
+                assert item['salaryCurrency'] == 'INR'
+                assert item['expectedSalary'] == 2500000
+
+    def test_create_defaults_currency_to_usd(self):
+        with mock_aws():
+            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            table = create_dynamodb_table(dynamodb)
+            with patch('applications_handler_int.table', table):
+                result = create_application(USER_ID, {
+                    'company': 'Stripe', 'role': 'SWE', 'status': 'applied'
+                }, make_event())
+                app_id = json.loads(result['body'])['application']['appId']
+                item = table.get_item(Key={'PK': f'USER#{USER_ID}', 'SK': f'APP#{app_id}'})['Item']
+                assert item['salaryCurrency'] == 'USD'
+
 
 class TestListApplicationsIntegration:
 

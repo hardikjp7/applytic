@@ -107,8 +107,8 @@ So I instrumented my own job search. Every application became a data point. Afte
 - Analytics shows conversion rate per version side-by-side
 
 **Salary tracking**
-- Log expected salary on any application, offered salary once you get an offer
-- Analytics shows average expected vs. offered salary and the average gap between them
+- Log expected salary on any application, offered salary once you get an offer, in USD/EUR/GBP/INR/CAD/AUD
+- Analytics shows average expected vs. offered salary and the average gap between them, scoped to your most common currency
 - Expected-salary distribution chart across your whole pipeline
 - AI coach can answer "am I targeting the right salary range?"
 

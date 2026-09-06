@@ -284,7 +284,12 @@ export class ApplyticStack extends cdk.Stack {
       description: 'Pattern analysis + Bedrock AI coaching',
     });
 
-    table.grantReadData(insightsLambda);
+    // v3.1.1 fix: was grantReadData only. check_rate_limit() calls
+    // table.update_item() to increment the RATELIMIT# counter - the
+    // AccessDeniedException was being silently swallowed by the existing
+    // try/except (fails open, returning "allowed"), so the 20-msg/day
+    // AI Coach limit was not being enforced at all in production.
+    table.grantReadWriteData(insightsLambda);
     insightsLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
@@ -303,7 +308,11 @@ export class ApplyticStack extends cdk.Stack {
       environment: { ...commonEnv, SES_FROM_EMAIL: 'hi@hardikjp7.com' },
     });
 
-    table.grantReadData(digestLambda);
+    // v3.1.1 fix: was grantReadData only. digest/handler.py's store_alerts()
+    // (added in v3.0) writes ALERT# items via table.put_item() - the read-only
+    // grant was never upgraded when that write path was added, causing a
+    // silent AccessDeniedException on every rejection-pattern-alert write.
+    table.grantReadWriteData(digestLambda);
     digestLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['ses:SendEmail', 'ses:SendRawEmail', 'bedrock:InvokeModel'],
