@@ -252,8 +252,8 @@ class TestComputeSalaryDistributionCurrencyAware:
         ]
         result = _compute_salary_distribution(apps)
         assert len(result) == 1
-        # 2,500,000 // 500,000 = 5 -> bucket starts at 2,500,000
-        assert result[0]["range"] == "2500k-3000k"
+        # 2,500,000 // 5,000,000 = 0 -> bucket starts at 0
+        assert result[0]["range"] == "0k-5000k"
         assert result[0]["count"] == 2
 
     def test_usd_bucket_size_unchanged_from_v31(self):

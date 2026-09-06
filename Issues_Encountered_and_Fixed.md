@@ -254,3 +254,18 @@ Full list of issues encountered during the development of Applytic, and how each
 
 * **Issue:** `KanbanBoard.tsx`'s CSV import path builds an `Application`-shaped object for `create()`. Once `expectedSalary`/`offeredSalary`/`salaryNotes` became required members of that type, the build failed with a missing-properties error.
 * **Fix:** Added the three fields to the import object with fixed defaults - CSV import does not support salary columns.
+
+### 46. Salary validation cap silently rejected valid non-USD figures
+
+* **Issue:** `expectedSalary`/`offeredSalary` had a 2,000,000 cap based on an implicit USD assumption. A user entering an INR salary of 25,00,000 (a completely normal figure) got a generic "Failed to update" toast with no indication of why - the real cause was a 400 validation error from Pydantic, but the frontend's mutation error handler discarded the actual message.
+* **Fix:** Raised the cap to 100,000,000 - a sanity ceiling against fat-finger entry rather than a currency-specific limit, since no currency field existed at the time this was first reported.
+
+### 47. Generic "Failed to update" toast hid the real API error message
+
+* **Issue:** `useApplications.ts`'s mutations (`create`, `update`, `remove`, `changeStatus`) all showed a fixed generic error string on failure, regardless of what the server actually rejected the request for. This made the salary cap bug above look like a mystery instead of a clear validation error, and will do the same for any future 400 the API returns.
+* **Fix:** All four mutations now read the real error message from the API response body (`err?.response?.data?.error`) and show that in the toast, falling back to the generic message only when the server didn't provide one.
+
+### 48. Two production Lambdas had write paths added in earlier versions without matching IAM grants
+
+* **Issue:** `digest/handler.py`'s `store_alerts()` (added in v3.0) writes `ALERT#` items via `table.put_item()`, and `insights/handler.py`'s `check_rate_limit()` writes the daily chat counter via `table.update_item()` - but `digestLambda` and `insightsLambda` in the CDK stack only ever had `grantReadData`. Both had been failing with `AccessDeniedException` in production since v3.0 shipped. The insights failure was especially quiet: `check_rate_limit()` already had a try/except that fails open on error, so the AI Coach's 20-message/day limit had not actually been enforced at all, with no visible symptom to the user. Found via CloudWatch log inspection, not by the test suite - mocked-table unit tests can't detect a missing IAM permission, since that only manifests against the real deployed table.
+* **Fix:** Both Lambdas upgraded from `grantReadData` to `grantReadWriteData` in `applytic-stack.ts`. Verified post-deploy by confirming a 21st same-day chat message returns 429, and that no further `AccessDeniedException` appears in CloudWatch for either function.

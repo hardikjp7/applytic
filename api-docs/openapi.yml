@@ -13,7 +13,7 @@ info:
     no runtime request/response validation is wired against it in v2.2.
     Pydantic models in each Lambda handler remain the source of truth for
     actual input validation.
-  version: "3.1.0"
+  version: "3.1.1"
   contact:
     name: Hardik
     url: https://github.com/hardikjp7/applytic
@@ -849,14 +849,16 @@ components:
           type: integer
           nullable: true
           minimum: 0
-          maximum: 2000000
-          description: v3.1. Candidate's expected annual salary in USD.
+          maximum: 100000000
+          description: v3.1, cap raised in v3.1.1. Candidate's expected annual salary, in the unit set by salaryCurrency.
         offeredSalary:
           type: integer
           nullable: true
           minimum: 0
-          maximum: 2000000
-          description: v3.1. Offered annual salary in USD, once an offer is received.
+          maximum: 100000000
+          description: v3.1, cap raised in v3.1.1. Offered annual salary, in the unit set by salaryCurrency, once an offer is received.
+        salaryCurrency:
+          $ref: "#/components/schemas/SalaryCurrency"
         salaryNotes:
           type: string
           description: v3.1. Free text - salary range, equity, or other compensation context.
@@ -878,6 +880,12 @@ components:
     CompanySize:
       type: string
       enum: [startup, mid, enterprise, ""]
+
+    SalaryCurrency:
+      type: string
+      enum: [USD, EUR, GBP, INR, CAD, AUD]
+      default: USD
+      description: v3.1.1. Applies to both expectedSalary and offeredSalary on the same application.
 
     CreateApplicationRequest:
       type: object
@@ -916,14 +924,18 @@ components:
           type: integer
           nullable: true
           minimum: 0
-          maximum: 2000000
-          description: v3.1. Validated server-side; rejects values outside 0-2,000,000 with 400.
+          maximum: 100000000
+          description: v3.1, cap raised in v3.1.1. Validated server-side; rejects values outside 0-100,000,000 with 400.
         offeredSalary:
           type: integer
           nullable: true
           minimum: 0
-          maximum: 2000000
-          description: v3.1. Same validation as expectedSalary.
+          maximum: 100000000
+          description: v3.1, cap raised in v3.1.1. Same validation as expectedSalary.
+        salaryCurrency:
+          allOf:
+            - $ref: "#/components/schemas/SalaryCurrency"
+          default: USD
         salaryNotes:
           type: string
           default: ""
@@ -958,14 +970,16 @@ components:
           type: integer
           nullable: true
           minimum: 0
-          maximum: 2000000
-          description: v3.1. Pass null explicitly to clear.
+          maximum: 100000000
+          description: v3.1, cap raised in v3.1.1. Pass null explicitly to clear.
         offeredSalary:
           type: integer
           nullable: true
           minimum: 0
-          maximum: 2000000
-          description: v3.1. Pass null explicitly to clear - typically cleared/corrected once an offer is finalised or declined.
+          maximum: 100000000
+          description: v3.1, cap raised in v3.1.1. Pass null explicitly to clear - typically cleared/corrected once an offer is finalised or declined.
+        salaryCurrency:
+          $ref: "#/components/schemas/SalaryCurrency"
         salaryNotes:
           type: string
 
@@ -1190,7 +1204,12 @@ components:
 
     SalaryInsights:
       type: object
-      description: v3.1. Aggregate salary stats. Fields are null (not 0) when there's no data for that metric.
+      description: >
+        v3.1, made currency-aware in v3.1.1. Aggregate salary stats are
+        scoped to the user's dominant currency (the most common currency
+        among their salary-bearing applications) - no exchange-rate
+        conversion is performed. Fields are null (not 0) when there's no
+        data for that metric.
       properties:
         avgExpectedSalary:
           type: integer
@@ -1201,7 +1220,7 @@ components:
         offerVsExpectedDiff:
           type: integer
           nullable: true
-          description: Average (offeredSalary - expectedSalary), only across applications with both fields set.
+          description: Average (offeredSalary - expectedSalary), only across applications with both fields set in the dominant currency.
         offerVsExpectedPct:
           type: number
           format: float
@@ -1210,6 +1229,13 @@ components:
           type: integer
         offeredCount:
           type: integer
+        dominantCurrency:
+          type: string
+          nullable: true
+          description: v3.1.1. The currency these stats are computed in, or null if the user has no salary data at all.
+        excludedCurrencyCount:
+          type: integer
+          description: v3.1.1. Number of applications with salary data in a currency other than dominantCurrency, excluded from the averages above.
 
     SalaryDistributionPoint:
       type: object

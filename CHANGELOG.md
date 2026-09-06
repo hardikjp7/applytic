@@ -4,6 +4,40 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.1.1] - 2026-09-06
+
+### Changed
+
+**Salary validation cap raised**
+- `expectedSalary`/`offeredSalary` max raised from 2,000,000 to 100,000,000 - the original cap silently rejected valid non-USD figures (e.g. INR salaries in the lakhs, like 25,00,000) since no currency field existed at the time and the number looked implausibly large in USD terms
+- New cap is a sanity ceiling against fat-finger entry only, not a real compensation limit
+
+**Salary currency support**
+- New `salaryCurrency` field on applications (`USD`, `EUR`, `GBP`, `INR`, `CAD`, `AUD`; defaults to `USD` for both new and pre-existing records)
+- One currency per application, applying to both `expectedSalary` and `offeredSalary`
+- `insights/handler.py`'s salary analytics are now currency-aware: `_compute_salary_insights()`/`_compute_salary_distribution()` scope their averages and distribution buckets to the user's dominant currency (the most common currency among their salary-bearing applications), excluding applications in a different currency rather than blending incompatible raw numbers - no exchange-rate conversion is performed
+- `SalaryInsights` extended with `dominantCurrency` and `excludedCurrencyCount`
+- `build_context_for_llm()`'s salary section now states the currency explicitly and notes any excluded applications, so the AI coach doesn't assume USD
+- INR uses a wider distribution bucket size than the other five currencies, since INR salary figures are an order of magnitude larger at typical compensation levels
+- Frontend: currency dropdown next to salary fields in `AddApplicationModal.tsx` and `ApplicationDetailModal.tsx`; Analytics salary banner and distribution chart display the dominant currency and an exclusion note when applicable
+- New `tests/test_insights_v311.py` - 21 tests covering dominant-currency determination and currency-scoped analytics; currency-field tests added to `tests/test_applications.py`/`test_applications_integration.py`
+
+### Fixed
+
+**Error messages silently swallowed on application update failure**
+- `useApplications.ts`'s mutations (`create`, `update`, `remove`, `changeStatus`) all showed a generic failure toast regardless of the actual server-side error, which made the salary-cap bug above look like a mystery "Failed to update" instead of a clear validation message
+- All four mutations now surface the real API error message when available, falling back to the generic message only when the server didn't provide one
+
+**Production IAM grants missing for write paths added in earlier versions**
+- `applytic-digest`: `store_alerts()` (added in v3.0) writes `ALERT#` items via `table.put_item()`, but `digestLambda` only ever had `grantReadData` - every rejection-pattern-alert write was silently failing with `AccessDeniedException` in production since v3.0 shipped
+- `applytic-insights`: `check_rate_limit()` writes the daily chat counter via `table.update_item()`, but `insightsLambda` also only had `grantReadData` - the write failure was caught by an existing try/except that fails open, meaning the 20-message/day AI Coach rate limit had not been enforced at all in production since v3.0
+- Both Lambdas upgraded to `grantReadWriteData` in `applytic-stack.ts`
+- Found via CloudWatch log inspection, not caught by the test suite - the mocked-table unit tests can't detect an IAM permission gap, since that only manifests against the real deployed table
+
+**Commit scope:** `lambdas/applications/`, `lambdas/insights/`, `cdk/`, `frontend/src/`, `tests/`, `api/`, `api-docs/`
+
+---
+
 ## [3.1.0] - 2026-08-30
 
 ### Added

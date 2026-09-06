@@ -14,6 +14,10 @@ updates:
       - chore
     commit-message:
       prefix: 'chore(cdk)'
+    groups:
+      all-cdk-dependencies:
+        patterns:
+          - "*"
 
   # Frontend dependencies
   - package-ecosystem: npm
@@ -29,17 +33,9 @@ updates:
     commit-message:
       prefix: 'chore(frontend)'
     groups:
-      aws-amplify:
+      all-frontend-dependencies:
         patterns:
-          - 'aws-amplify'
-          - '@aws-amplify/*'
-      react-ecosystem:
-        patterns:
-          - 'react'
-          - 'react-dom'
-          - 'react-router-dom'
-          - '@types/react'
-          - '@types/react-dom'
+          - "*"
 
   # Lambda Python dependencies
   - package-ecosystem: pip
@@ -54,6 +50,10 @@ updates:
       - chore
     commit-message:
       prefix: 'chore(lambda)'
+    groups:
+      all-lambda-dependencies:
+        patterns:
+          - "*"
 
   # GitHub Actions
   - package-ecosystem: github-actions
@@ -68,3 +68,7 @@ updates:
       - chore
     commit-message:
       prefix: 'chore(ci)'
+    groups:
+      all-github-actions:
+        patterns:
+          - "*"
