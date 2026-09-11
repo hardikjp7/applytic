@@ -216,6 +216,9 @@ export class ApplyticStack extends cdk.Stack {
           'https://hardikjp7.github.io/applytic',
           customDomain,
           customDomainApplytic,
+          // v3.2: browser extension - chrome.identity.launchWebAuthFlow redirect.
+          // Extension ID is fixed by the pinned key in extension/manifest.json.
+          'https://eghmfcibiaehpeaekkpnogbfbnelfakj.chromiumapp.org/',
         ],
         logoutUrls: [
           `${cloudfrontDomain}/`,
