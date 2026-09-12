@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Applytic - Add to Tracker",
+  "version": "1.0.0",
+  "description": "One-click add job postings from LinkedIn, Indeed, and Glassdoor straight into your Applytic tracker.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2bSulH73kkJlx8SM+yzjSzQWBQLpZM2T2TM4okxaBlJwH0hKs+eryuDO7iRHPhvc5+rVWwc6zZbDJBCkNYkzFNGiVODWP60W4XlQezJ53uRYL3UTy40SbZEwSCr0YKYIfqyIdCJMzZDV0gAFu9rLXuvvxbOFL1F+orQvhkWg8SbhTG8o54nr+ebOdDJmp+Ff8Qcd83R/T4PedxiL+t76RXqRwtjq6/OcF5UpuZjiorBoknw1Huex31pdqCBP/extchbJhEHI+Qm+zbdoZSh3LmmnbeILzQwCqUpdsGx4i1KBASiMXBJxUB9S6miZ17asxOcG+CHF0xS/PVwPvkSxKwIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["identity", "storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://mbjyu0w1k5.execute-api.us-east-1.amazonaws.com/*",
+    "https://applytic-auth.auth.us-east-1.amazoncognito.com/*"
+  ],
+  "content_scripts": [],
+  "externally_connectable": {
+    "matches": []
+  }
+}

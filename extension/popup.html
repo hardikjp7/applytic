@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Applytic</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="header">
+    <div class="logo">A</div>
+    <span class="title">applytic</span>
+  </div>
+
+  <div id="loading" class="state">
+    <div class="spinner"></div>
+  </div>
+
+  <div id="signed-out" class="state hidden">
+    <p class="msg">Sign in to add job postings straight from LinkedIn, Indeed, and Glassdoor.</p>
+    <button id="sign-in-btn" class="primary-btn">Sign in</button>
+  </div>
+
+  <div id="signed-in" class="state hidden">
+    <div class="status-row">
+      <span class="status-dot"></span>
+      <span>Connected</span>
+    </div>
+    <p class="msg">Visit a job posting on LinkedIn, Indeed, or Glassdoor and click "Add to Applytic" on the page.</p>
+    <button id="sign-out-btn" class="secondary-btn">Sign out</button>
+  </div>
+
+  <div id="error" class="state hidden">
+    <p class="msg error-msg"></p>
+    <button id="retry-btn" class="secondary-btn">Try again</button>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
