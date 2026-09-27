@@ -598,6 +598,8 @@ export class ApplyticStack extends cdk.Stack {
           'https://hardikjp7.github.io',
           customDomain,
           customDomainApplytic,
+          // v3.2: browser extension background worker calls POST /applications directly
+          'chrome-extension://eghmfcibiaehpeaekkpnogbfbnelfakj',
         ],
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],

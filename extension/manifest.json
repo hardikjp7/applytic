@@ -23,12 +23,51 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["identity", "storage", "activeTab", "scripting"],
+  "permissions": ["identity", "storage", "activeTab", "webNavigation"],
   "host_permissions": [
     "https://mbjyu0w1k5.execute-api.us-east-1.amazonaws.com/*",
     "https://applytic-auth.auth.us-east-1.amazoncognito.com/*"
   ],
-  "content_scripts": [],
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/jobs/*"],
+      "js": ["content-scripts/shared.js", "content-scripts/linkedin.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.indeed.com/*"
+      ],
+      "js": ["content-scripts/shared.js", "content-scripts/indeed.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_origin_as_fallback": true
+    },
+    {
+      "matches": [
+        "https://www.glassdoor.com/job-listing/*",
+        "https://www.glassdoor.com/Job/*",
+        "https://www.glassdoor.co.in/job-listing/*",
+        "https://www.glassdoor.co.in/Job/*",
+        "https://www.glassdoor.co.uk/job-listing/*",
+        "https://www.glassdoor.co.uk/Job/*",
+        "https://www.glassdoor.ca/job-listing/*",
+        "https://www.glassdoor.ca/Job/*",
+        "https://www.glassdoor.com.au/job-listing/*",
+        "https://www.glassdoor.com.au/Job/*",
+        "https://www.glassdoor.de/job-listing/*",
+        "https://www.glassdoor.de/Job/*",
+        "https://www.glassdoor.fr/job-listing/*",
+        "https://www.glassdoor.fr/Job/*",
+        "https://www.glassdoor.ie/job-listing/*",
+        "https://www.glassdoor.ie/Job/*",
+        "https://www.glassdoor.sg/job-listing/*",
+        "https://www.glassdoor.sg/Job/*"
+      ],
+      "js": ["content-scripts/shared.js", "content-scripts/glassdoor.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "externally_connectable": {
     "matches": []
   }

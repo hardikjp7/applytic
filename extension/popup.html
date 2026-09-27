@@ -15,18 +15,26 @@
     <div class="spinner"></div>
   </div>
 
-  <div id="signed-out" class="state hidden">
-    <p class="msg">Sign in to add job postings straight from LinkedIn, Indeed, and Glassdoor.</p>
-    <button id="sign-in-btn" class="primary-btn">Sign in</button>
-  </div>
-
-  <div id="signed-in" class="state hidden">
-    <div class="status-row">
-      <span class="status-dot"></span>
-      <span>Connected</span>
+  <div id="main" class="state hidden">
+    <!-- Auth status row - single element, content-driven so it's
+         impossible to show two contradictory states at once -->
+    <div id="auth-row" class="auth-row">
+      <span id="auth-dot" class="status-dot status-dot-off"></span>
+      <span id="auth-label" class="auth-label">Checking...</span>
+      <button id="auth-action-btn" class="link-btn"></button>
     </div>
-    <p class="msg">Visit a job posting on LinkedIn, Indeed, or Glassdoor and click "Add to Applytic" on the page.</p>
-    <button id="sign-out-btn" class="secondary-btn">Sign out</button>
+
+    <!-- Job detection area -->
+    <div id="job-found" class="job-card hidden">
+      <p class="job-role"></p>
+      <p class="job-company"></p>
+      <button id="add-btn" class="primary-btn">Add to Applytic</button>
+      <p id="add-feedback" class="feedback hidden"></p>
+    </div>
+
+    <div id="job-not-found" class="state hidden">
+      <p class="msg">Visit a job posting on LinkedIn, Indeed, or Glassdoor, then open this popup again.</p>
+    </div>
   </div>
 
   <div id="error" class="state hidden">

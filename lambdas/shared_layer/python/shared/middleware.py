@@ -20,7 +20,9 @@ logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 ALLOWED_ORIGINS = [
     "https://d3jumje9o63lys.cloudfront.net",
     "https://hardikjp7.github.io",
-    "https://hardikjp7.com"
+    "https://hardikjp7.com",
+    # v3.2: browser extension - chrome extension origins are stable per-ID
+    "chrome-extension://eghmfcibiaehpeaekkpnogbfbnelfakj",
 ]
 
 def _get_cors_origin(event: dict) -> str:

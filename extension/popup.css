@@ -1,7 +1,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  width: 280px;
+  width: 300px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: #fafafa;
   color: #111827;
@@ -12,7 +12,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .logo {
@@ -34,13 +34,12 @@ body {
   color: #26215c;
 }
 
-.state.hidden { display: none; }
+.state.hidden, .hidden { display: none; }
 
 .msg {
   font-size: 13px;
   color: #6b7280;
   line-height: 1.5;
-  margin-bottom: 12px;
 }
 
 .primary-btn {
@@ -55,6 +54,7 @@ body {
   cursor: pointer;
 }
 .primary-btn:hover { background: #3c3489; }
+.primary-btn:disabled { opacity: 0.6; cursor: default; }
 
 .secondary-btn {
   width: 100%;
@@ -68,14 +68,30 @@ body {
 }
 .secondary-btn:hover { background: #f3f4f6; }
 
-.status-row {
+/* Compact auth status row - secondary to the job card now */
+.auth-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 10px;
+  font-size: 12px;
+  color: #6b7280;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #eeedee;
 }
+
+.auth-label { flex: 1; }
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #534ab7;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+.link-btn:hover { text-decoration: underline; }
 
 .status-dot {
   width: 7px;
@@ -83,8 +99,38 @@ body {
   border-radius: 50%;
   background: #22c55e;
 }
+.status-dot-off { background: #d1d5db; }
 
-.error-msg { color: #dc2626; }
+/* Job card - the main focus of the popup */
+.job-card {
+  background: white;
+  border: 1px solid #eeedee;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.job-role {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 2px;
+}
+
+.job-company {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.feedback {
+  font-size: 12px;
+  margin-top: 8px;
+  text-align: center;
+}
+.feedback-success { color: #16a34a; }
+.feedback-error { color: #dc2626; }
+
+.error-msg { color: #dc2626; margin-bottom: 12px; }
 
 .spinner {
   width: 20px;
