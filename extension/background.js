@@ -129,13 +129,6 @@ async function signOut() {
   await clearStoredAuth();
 }
 
-// ── Pending application queue - offline/signed-out fallback ──────────────────
-// Session 2 queued everything unconditionally as a placeholder. Now the
-// queue is only the fallback path: used when there's no valid session, or
-// when a live POST fails for a retryable reason (network error, 5xx).
-// Anything queued gets drained by flushQueue(), triggered after sign-in and
-// opportunistically at the start of every new ADD_APPLICATION call.
-
 const QUEUE_KEY = 'applytic_pending_queue';
 
 async function queueApplication(payload) {
@@ -203,6 +196,42 @@ async function postApplication(idToken, payload) {
   }
 }
 
+// Short in-memory cache only - lost on service worker restart, which just
+// means one extra fetch next time. Not worth persisting for a 60s TTL.
+let applicationsCache = null;
+let applicationsCacheAt = 0;
+const APPLICATIONS_CACHE_TTL_MS = 60_000;
+
+async function fetchApplicationsCached(idToken) {
+  if (applicationsCache && Date.now() - applicationsCacheAt < APPLICATIONS_CACHE_TTL_MS) {
+    return applicationsCache;
+  }
+  const res = await fetch(`${API_BASE}/applications`, { headers: { Authorization: idToken } });
+  if (!res.ok) throw new Error(`Failed to fetch applications (${res.status})`);
+  const data = await res.json();
+  applicationsCache = data.applications || [];
+  applicationsCacheAt = Date.now();
+  return applicationsCache;
+}
+
+function norm(s) {
+  return (s || '').trim().toLowerCase();
+}
+
+// URL match first (strongest signal - same canonical posting), falling
+// back to company+role (case-insensitive) since a user might have added
+// the same job from a different source/URL than the one being viewed now.
+function findDuplicate(applications, jobData) {
+  const urlMatch = applications.find(
+    (a) => a.jobDescUrl && jobData.jobDescUrl && a.jobDescUrl === jobData.jobDescUrl
+  );
+  if (urlMatch) return urlMatch;
+
+  const company = norm(jobData.company);
+  const role = norm(jobData.role);
+  return applications.find((a) => norm(a.company) === company && norm(a.role) === role) || null;
+}
+
 // Attempts to sync one item: live POST if signed in, queue otherwise.
 async function syncApplication(payload) {
   const idToken = await getValidIdToken();
@@ -213,6 +242,7 @@ async function syncApplication(payload) {
 
   const result = await postApplication(idToken, payload);
   if (result.ok) {
+    applicationsCache = null; // invalidate - a new record just landed
     return { ok: true, queued: false };
   }
   if (result.retryable) {
@@ -291,6 +321,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         case 'GET_AUTH_STATE': {
           const idToken = await getValidIdToken();
           sendResponse({ ok: true, signedIn: !!idToken });
+          break;
+        }
+        case 'CHECK_DUPLICATE': {
+          const idToken = await getValidIdToken();
+          if (!idToken) {
+            sendResponse({ ok: true, duplicate: null }); // nothing to check against
+            break;
+          }
+          try {
+            const apps = await fetchApplicationsCached(idToken);
+            const dup = findDuplicate(apps, message.payload);
+            sendResponse({
+              ok: true,
+              duplicate: dup ? { appId: dup.appId, status: dup.status, company: dup.company, role: dup.role } : null,
+            });
+          } catch {
+            sendResponse({ ok: true, duplicate: null }); // fail quiet - never blocks the Add flow
+          }
+          break;
+        }
+        case 'GET_QUEUE': {
+          sendResponse({ ok: true, queue: await getQueue() });
+          break;
+        }
+        case 'REMOVE_QUEUE_ITEM': {
+          const queue = await getQueue();
+          const updated = queue.filter((_, i) => i !== message.index);
+          await setQueue(updated);
+          sendResponse({ ok: true, queue: updated });
+          break;
+        }
+        case 'FLUSH_QUEUE_NOW': {
+          await flushQueue();
+          sendResponse({ ok: true, queue: await getQueue() });
           break;
         }
         case 'ADD_APPLICATION': {

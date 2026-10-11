@@ -11,6 +11,14 @@ const els = {
   jobCompany: document.querySelector('#job-found .job-company'),
   addBtn: document.getElementById('add-btn'),
   addFeedback: document.getElementById('add-feedback'),
+  dupWarning: document.getElementById('dup-warning'),
+  queueIndicator: document.getElementById('queue-indicator'),
+  queueCountText: document.getElementById('queue-count-text'),
+};
+
+const STATUS_LABELS = {
+  applied: 'Applied', screened: 'Screened', interview: 'Interview',
+  offer: 'Offer', rejected: 'Rejected', withdrawn: 'Withdrawn',
 };
 
 const topLevelStates = { loading: els.loading, main: els.main, error: els.error };
@@ -59,66 +67,51 @@ function setJobSection(jobData) {
     els.addFeedback.classList.add('hidden');
     els.addBtn.disabled = false;
     els.addBtn.textContent = 'Add to Applytic';
+    els.dupWarning.classList.add('hidden'); // cleared until checkDuplicate resolves
   }
 }
 
-// Queries the active tab's content script directly, rather than trusting
-// any cached/background state - this is the freshest possible read of
-// "what's on screen right now," and it's only ever asked once per popup
-// open, so there's no cost to always going straight to the source.
-function queryFrame(tabId, frameId) {
+function setQueueIndicator(queue) {
+  const count = queue.length;
+  els.queueIndicator.classList.toggle('hidden', count === 0);
+  if (count > 0) {
+    els.queueCountText.textContent = `${count} pending sync${count !== 1 ? 'es' : ''}`;
+  }
+}
+
+// Runs after the job card is already showing - non-blocking, only ever
+// upgrades the UI with a warning if one applies. Never gates the Add button.
+async function checkDuplicate(jobData) {
+  const res = await chrome.runtime.sendMessage({ type: 'CHECK_DUPLICATE', payload: jobData });
+  if (res && res.ok && res.duplicate) {
+    const label = STATUS_LABELS[res.duplicate.status] || res.duplicate.status;
+    els.dupWarning.textContent = `Already tracked - status: ${label}`;
+    els.dupWarning.classList.remove('hidden');
+  } else {
+    els.dupWarning.classList.add('hidden');
+  }
+}
+
+function getCurrentJobFromActiveTab() {
   return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, { type: 'GET_CURRENT_JOB' }, { frameId }, (res) => {
-      // chrome.runtime.lastError fires when this particular frame has no
-      // content script loaded - expected for most frames on most pages,
-      // not an error worth surfacing.
-      if (chrome.runtime.lastError || !res || !res.ok) {
-        resolve(null);
-        return;
-      }
-      resolve(res.data || null);
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (!tab || !tab.id) { resolve(null); return; }
+      chrome.tabs.sendMessage(tab.id, { type: 'GET_CURRENT_JOB' }, (res) => {
+        if (chrome.runtime.lastError || !res || !res.ok) { resolve(null); return; }
+        resolve(res.data || null);
+      });
     });
   });
-}
-
-// Most pages only have one relevant frame (frameId 0, the main document),
-// but some sites (Indeed's job view, confirmed live) render the actual job
-// content inside an embedded iframe instead. chrome.tabs.sendMessage
-// without an explicit frameId sends to every frame but only surfaces one
-// reply, and which one isn't reliable - so frames are enumerated and
-// queried individually here, taking the first one that actually has data.
-async function getCurrentJobFromActiveTab() {
-  const tabs = await new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, resolve);
-  });
-  const tab = tabs[0];
-  if (!tab || !tab.id) return null;
-
-  let frames;
-  try {
-    frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id });
-  } catch {
-    frames = null;
-  }
-  // Fallback to just the main frame if webNavigation is unavailable for
-  // any reason - still correct for every site except Indeed's iframe case.
-  if (!frames || frames.length === 0) {
-    frames = [{ frameId: 0 }];
-  }
-
-  for (const frame of frames) {
-    const data = await queryFrame(tab.id, frame.frameId);
-    if (data) return data;
-  }
-  return null;
 }
 
 async function refreshState() {
   showTopLevel('loading');
 
-  const [authRes, jobData] = await Promise.all([
+  const [authRes, jobData, queueRes] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' }),
     getCurrentJobFromActiveTab(),
+    chrome.runtime.sendMessage({ type: 'GET_QUEUE' }),
   ]);
 
   if (!authRes || !authRes.ok) {
@@ -128,8 +121,17 @@ async function refreshState() {
 
   setAuthRow(authRes.signedIn);
   setJobSection(jobData);
+  setQueueIndicator(queueRes && queueRes.ok ? queueRes.queue : []);
   showTopLevel('main');
+
+  // Fire-and-forget - only ever upgrades the UI once it resolves, never
+  // blocks showing the job card itself.
+  if (jobData) checkDuplicate(jobData);
 }
+
+document.getElementById('manage-queue-btn').addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
+});
 
 els.addBtn.addEventListener('click', async () => {
   const jobData = await getCurrentJobFromActiveTab();
@@ -144,7 +146,7 @@ els.addBtn.addEventListener('click', async () => {
   els.addBtn.textContent = 'Adding...';
   els.addFeedback.classList.add('hidden');
 
-  chrome.runtime.sendMessage({ type: 'ADD_APPLICATION', payload: jobData }, (res) => {
+  chrome.runtime.sendMessage({ type: 'ADD_APPLICATION', payload: jobData }, async (res) => {
     els.addBtn.disabled = false;
 
     if (chrome.runtime.lastError || !res || !res.ok) {
@@ -159,6 +161,9 @@ els.addBtn.addEventListener('click', async () => {
       ? 'Saved - will sync once signed in.'
       : 'Added to Applytic.';
     els.addFeedback.className = 'feedback feedback-success';
+
+    const queueRes = await chrome.runtime.sendMessage({ type: 'GET_QUEUE' });
+    if (queueRes && queueRes.ok) setQueueIndicator(queueRes.queue);
   });
 });
 

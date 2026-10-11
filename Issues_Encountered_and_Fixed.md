@@ -153,119 +153,178 @@ Full list of issues encountered during the development of Applytic, and how each
 ### 25. followUpDate date picker missing from ApplicationDetailModal edit form
 
 * **Issue:** followUpDate existed in the type and backend but was never rendered in the detail modal's edit mode - users had no way to set or clear a follow-up date from the UI.
+
 * **Fix:** Added a date picker input under Job description in edit mode, wired to send null when cleared.
 
 ### 26. Notes section overwriting previous notes instead of keeping a timeline
 
 * **Issue:** ApplicationDetailModal's notes section was a plain textarea bound to the single app.notes string field. The notes timeline Lambda and useNotes hook already existed but were never wired in, so each new note overwrote the last.
+
 * **Fix:** Replaced the textarea with a full notes timeline UI using useNotes(app.appId) - timestamped entries, oldest first, hover-to-delete.
 
 ### 27. compute_streak using a rolling 7-day window instead of calendar weeks
 
 * **Issue:** Streak calculation bucketed applications using `(now - applied).days // 7`, a rolling window that could split a single calendar week across two buckets depending on time of day, so the streak badge sometimes read 0 even when the weekly goal was met.
+
 * **Fix:** Rewrote to use proper ISO week boundaries (Monday 00:00 UTC), matching what the Dashboard progress bar counts.
 
 ### 28. localhost blocked by CORS when running the frontend against the live backend
 
 * **Issue:** `http://localhost:5173` wasn't in ALLOWED_ORIGINS in shared/middleware.py, so `npm run dev` against the deployed API failed with CORS errors.
+
 * **Fix:** Deferred - workaround was testing directly against the deployed CloudFront/GitHub Pages URLs. CDK/middleware changes to allow localhost origins are still pending.
 
 ### 29. Unhandled promise rejections after migrating to React Query
 
 * **Issue:** React Query's `mutateAsync` rethrows on failure by design. Two call sites (`Dashboard.tsx` goal save, `ApplicationDetailModal.tsx` add note) awaited it directly, producing console errors even though the error toast fired correctly.
+
 * **Fix:** Wrapped both calls in try/catch with an intentionally empty catch block, since `onError` in the hook already handles the user-facing toast.
 
 ### 30. resumeVersion was free text with no link to actually-uploaded resumes
 
 * **Issue:** Typos and inconsistent naming (`v3-ml-focused` vs `v3-ml` vs `ML v3`) silently fragmented analytics breakdowns, and would have blocked v3.0's interview-prep/rejection-pattern features which need reliable resume-version linkage.
+
 * **Fix:** Built a `ResumeVersionSelect` dropdown sourced from `GET /resumes/list`, shared by both modals. Stale values (deleted from S3, or free-typed before this change) are preserved as a disabled, flagged option rather than dropped.
 
 ### 31. SPA hard refresh dropped `/applytic` from the URL and rendered blank
 
 * **Issue:** `404.html` stripped `/applytic` from the path before storing it, then redirected to `/applytic/`. `index.html`'s restore script wrote that already-stripped route straight to the address bar, so a hard refresh on `hardikjp7.com/applytic/board` silently became `hardikjp7.com/board`, matching no route and rendering blank.
+
 * **Fix:** `404.html` now stores the FULL original path verbatim; `index.html` restores it as-is - single source of truth for the base path instead of two scripts disagreeing.
 
 ### 32. Amplify Authenticator login box stuck at the top of the page
 
 * **Issue:** Known upstream `@aws-amplify/ui-react` issue - centering styles are split across two elements, neither of which fills the viewport by default.
+
 * **Fix:** Added a `min-height: 100vh` flex-center override scoped to `[data-amplify-authenticator]` in index.css.
 
 ### 33. `/api/docs/` returned CloudFront AccessDenied, but `/api/docs/index.html` worked
 
 * **Issue:** CloudFront's `defaultRootObject` only applies to the distribution root, not subdirectory paths matched by `additionalBehaviors`. A request for exactly `/api/docs/` had no matching S3 object, so OAC returned 403 instead of serving the index page.
+
 * **Fix:** Added a CloudFront Function on the `api/docs/*` behavior's viewer-request event that rewrites any URI ending in `/` to append `index.html`.
 
 ### 34. Amplify Hub event `signIn_failure` renamed in v6
 
 * **Issue:** `AuthCallback` used `payload.event === 'signIn_failure'`, which no longer exists in Amplify v6 and caused a TypeScript error.
+
 * **Fix:** Changed to the correct v6 event name, `signInWithRedirect_failure`.
 
 ### 35. HowItWorks connector line showed through transparent icon boxes
 
 * **Issue:** A single absolute-positioned line spanning all four steps passed behind the semi-transparent icon boxes, making it visible through them.
+
 * **Fix:** Replaced with individual in-flow connector divs placed between each pair of step columns, which physically cannot overlap the icon boxes.
 
 ### 36. Authenticated users saw the auth modal when clicking landing page CTAs
 
 * **Issue:** Clicking "Get Started Free" or "Log in" always opened the AuthModal, even for already-signed-in users, producing a confusing "already signed in" error.
+
 * **Fix:** Added a `useAuthStatus` hook that checks the Cognito session on mount; CTAs redirect straight to `/dashboard` when already authenticated.
 
 ### 37. Analytics page crashed on zero applications and stayed broken across navigation
 
 * **Issue:** The empty-state check didn't account for the Lambda's `{"message": "..."}` shape returned for zero applications, throwing on `patterns.summary.total`. A single unkeyed ErrorBoundary around all routes then stayed in its error state for every later page until a hard refresh.
+
 * **Fix:** Fixed the guard to check for a missing `summary` key; keyed the ErrorBoundary to `location.pathname` so navigation itself clears any future render error.
 
 ### 38. CodeQL flagged the HTML-stripping regex as bypassable
 
 * **Issue:** `_strip_html`'s regex-based script/style stripping didn't recognize malformed-but-browser-accepted close tags like `</script foo="bar">`, meaning script content could leak into text passed to the interview-prep LLM prompt.
+
 * **Fix:** Replaced with a stdlib `HTMLParser` subclass that tokenizes tag names structurally instead of pattern-matching, immune to attribute-injection or case-variation bypasses.
 
 ### 39. Privacy Policy and Terms pages had the same broken-link bug as AuthModal
 
 * **Issue:** Both pages used bare `<a href="/">` for the logo and footer "back" links, bypassing React Router's basename the same way AuthModal originally did (see #24).
+
 * **Fix:** Replaced all four instances with `<Link to="/">`.
 
 ### 40. FAQ accordion click caused whole-page lag
 
 * **Issue:** FAQ cards shared the `.land-glass` class, which uses `backdrop-filter`. Opening one card's answer shifted every card below it on each animation frame, forcing the browser to repaint the expensive blur across all shifting siblings.
+
 * **Fix:** Gave FAQ cards a dedicated solid-background class with no backdrop-filter, and switched the height animation from `max-height` to `grid-template-rows` for compositor-friendly performance.
 
 ### 41. Production bundle exceeded Vite's 500kB warning threshold
 
 * **Issue:** Every route/page component was statically imported into a single chunk regardless of which route a user actually visited.
+
 * **Fix:** Converted all route-level components to `React.lazy()` with `Suspense` boundaries, so each route downloads only its own chunk.
 
 ### 42. Secrets Manager billed a small daily cost for credentials only needed at deploy time
 
 * **Issue:** AWS Cost Anomaly Detection flagged ~$0.013/day from the Google OAuth secret. Secrets Manager bills per-secret regardless of usage, and the values are only read once at CDK deploy time.
+
 * **Fix:** Migrated to free-tier SSM Parameter Store SecureString parameters, resolved via an `AwsCustomResource` at deploy time (a direct SSM dynamic reference isn't supported on Cognito's identity provider resource property).
 
 ### 43. Google Search results didn't show the Applytic favicon (v3.1)
 
 * **Issue:** The site only served `favicon.svg` with no PNG/ICO fallback, and `apple-touch-icon.png` was referenced in index.html but never actually existed. Google's Search favicon crawler has unreliable SVG support and expects a static PNG/ICO at a stable, crawlable URL.
+
 * **Fix:** Generated a proper favicon.ico and PNG set (16 through 512px) plus a real apple-touch-icon.png matching the existing mark, and added them as fallback `<link>` tags alongside the SVG.
 
 ### 44. Returning from Privacy/Terms landed at the wrong scroll position (v3.1)
 
 * **Issue:** The browser's native `history.scrollRestoration` tracks scroll per history entry independently of React Router, then reapplies a stale offset against freshly re-mounted content that doesn't line up - "Back to Applytic" always landed near the Features section instead of where the user had scrolled from. A first attempt using unmount-cleanup to save scroll position also failed under React 18 StrictMode's dev-only double-invoke, which cleared the saved value before it could be used.
+
 * **Fix:** Set `scrollRestoration = 'manual'` and took full manual control - a live scroll listener persists position, restoration only fires on real back-navigation (detected via `useNavigationType`), and "Back to Applytic" now triggers genuine `navigate(-1)` instead of a fresh link navigation.
 
 ### 45. CSV import broke the TypeScript build after salary fields were added (v3.1)
 
 * **Issue:** `KanbanBoard.tsx`'s CSV import path builds an `Application`-shaped object for `create()`. Once `expectedSalary`/`offeredSalary`/`salaryNotes` became required members of that type, the build failed with a missing-properties error.
+
 * **Fix:** Added the three fields to the import object with fixed defaults - CSV import does not support salary columns.
 
 ### 46. Salary validation cap silently rejected valid non-USD figures
 
 * **Issue:** `expectedSalary`/`offeredSalary` had a 2,000,000 cap based on an implicit USD assumption. A user entering an INR salary of 25,00,000 (a completely normal figure) got a generic "Failed to update" toast with no indication of why - the real cause was a 400 validation error from Pydantic, but the frontend's mutation error handler discarded the actual message.
+
 * **Fix:** Raised the cap to 100,000,000 - a sanity ceiling against fat-finger entry rather than a currency-specific limit, since no currency field existed at the time this was first reported.
 
 ### 47. Generic "Failed to update" toast hid the real API error message
 
 * **Issue:** `useApplications.ts`'s mutations (`create`, `update`, `remove`, `changeStatus`) all showed a fixed generic error string on failure, regardless of what the server actually rejected the request for. This made the salary cap bug above look like a mystery instead of a clear validation error, and will do the same for any future 400 the API returns.
+
 * **Fix:** All four mutations now read the real error message from the API response body (`err?.response?.data?.error`) and show that in the toast, falling back to the generic message only when the server didn't provide one.
 
 ### 48. Two production Lambdas had write paths added in earlier versions without matching IAM grants
 
 * **Issue:** `digest/handler.py`'s `store_alerts()` (added in v3.0) writes `ALERT#` items via `table.put_item()`, and `insights/handler.py`'s `check_rate_limit()` writes the daily chat counter via `table.update_item()` - but `digestLambda` and `insightsLambda` in the CDK stack only ever had `grantReadData`. Both had been failing with `AccessDeniedException` in production since v3.0 shipped. The insights failure was especially quiet: `check_rate_limit()` already had a try/except that fails open on error, so the AI Coach's 20-message/day limit had not actually been enforced at all, with no visible symptom to the user. Found via CloudWatch log inspection, not by the test suite - mocked-table unit tests can't detect a missing IAM permission, since that only manifests against the real deployed table.
+
 * **Fix:** Both Lambdas upgraded from `grantReadData` to `grantReadWriteData` in `applytic-stack.ts`. Verified post-deploy by confirming a 21st same-day chat message returns 429, and that no further `AccessDeniedException` appears in CloudWatch for either function.
+
+### 49. LinkedIn job title and company had no usable CSS selectors, so the in-page button never appeared
+
+- **Issue:** The extension's first design injected an "Add to Applytic" button into LinkedIn's job page, located via CSS selectors. Live inspection showed LinkedIn's title and company elements carry only hashed, build-specific classes (e.g., `fe4f64b5 _90758c2f`) with no `data-*` or `aria-*` hooks, and the title is a plain `<p>`, not an `<h1>`, so every guessed selector missed. The selectors had been written from general knowledge and never verified against a live page.
+
+- **Fix:** Extraction moved to signals LinkedIn keeps stable: the `document.title` format `"{Role} | {Company} in {Location} | LinkedIn"` (SEO-load-bearing, so it survives DOM redesigns), cross-checked against `a[href*="/company/"]`. Because injection also needed a stable anchor next to the Apply button, the whole in-page approach was dropped: content scripts now only answer a `GET_CURRENT_JOB` message when the toolbar popup opens, and the Add button lives in the popup. Button placement stopped being a problem on every site.
+
+### 50. Debounced MutationObserver never re-ran on a page that never stops mutating
+
+* **Issue:** The first design re-checked the page through a MutationObserver with a 400ms debounce. LinkedIn mutates continuously in the background (chat widget, feed activity), so the debounce timer was reset on every mutation and only the first, pre-render check ever ran - which found nothing.
+
+* **Fix:** Added a 1.5s interval backstop that does not depend on the page going quiet. The whole problem disappeared with the popup-triggered redesign, since extraction now happens once, on demand, with no watcher loop.
+
+### 51. Content scripts never loaded on regional Indeed and Glassdoor domains
+
+* **Issue:** manifest.json content_scripts matches listed only www.indeed.com and www.glassdoor.com. Testing from India used in.indeed.com and www.glassdoor.co.in, so the scripts never loaded at all (no console output, popup showed "no job detected").
+
+* **Fix:** Indeed: subdomain wildcard (https://*.indeed.com/...), which covers every region. Glassdoor uses a different top-level domain per country and Chrome match patterns cannot wildcard the TLD, so supported domains are listed explicitly (.com, .co.in, .co.uk, .ca, .com.au, .de, .fr, .ie, .sg). The list is not exhaustive - a new country needs a manifest entry. A load-time console log in shared.js now distinguishes "never loaded" from "loaded but extracted nothing".
+
+### 52. Indeed extraction failed because of a wrong iframe theory
+
+* **Issue:** Indeed extraction returned null even though the content script loaded. Names in Indeed's own bundle (EmbeddedViewJob, loadViewJobModule) suggested the job view lived in an iframe, so all_frames, match_origin_as_fallback and the webNavigation permission (to query each frame) were added. Chrome also rejected the first attempt: match_origin_as_fallback requires every match pattern in that block to use a bare * path. Inspecting frame.contentDocument then showed the only iframe was a Google Tag Manager tracking frame - the title and company were in the main document all along, rendered by a custom React Native Web layer with hashed classes.
+
+* **Fix:** The real cause was a plain selector mismatch. Used the stable hook found by inspecting the rendered element: data-testid="vj-job-title" for the title. The iframe handling was reverted (all_frames, match_origin_as_fallback and webNavigation removed, Indeed matches path-scoped again). Lesson: confirm where an element lives with a direct check before building infrastructure around a theory.
+
+### 53. Indeed company name was wrong: self-promo link and two different page markups
+
+* **Issue:** Company came back as "Work at Indeed": Indeed injects a self-promo ad that also links through /cmp/, and a document-wide first-match search picked it up. After that was fixed, the standalone /viewjob page still returned null because it renders the company as a plain <div data-testid="vj-company-name"> with no link at all, while the search-results panel uses a /cmp/ link. Two page types, two markups.
+* **Fix:** getCompany() tries [data-testid="vj-company-name"] first, then falls back to a[href*="/cmp/"] searched outward from the title element (closest container first), skipping any text matching /^work at\b/i.
+
+### 54. Popup showed 'Connected' and 'Not signed in' at the same time
+
+* **Issue:** Auth state was modeled as two separate elements toggled with hidden classes that had to be exact opposites, and they desynced.
+
+* **Fix:** Collapsed into a single auth row whose label, dot colour and button handler are all set from one signedIn value, so contradictory states cannot render.

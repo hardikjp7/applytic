@@ -19,6 +19,10 @@
       "128": "icons/icon128.png"
     }
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -35,13 +39,9 @@
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://*.indeed.com/*"
-      ],
+      "matches": ["https://*.indeed.com/viewjob*", "https://*.indeed.com/jobs*"],
       "js": ["content-scripts/shared.js", "content-scripts/indeed.js"],
-      "run_at": "document_idle",
-      "all_frames": true,
-      "match_origin_as_fallback": true
+      "run_at": "document_idle"
     },
     {
       "matches": [

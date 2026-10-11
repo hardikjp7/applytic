@@ -26,10 +26,17 @@
 
     <!-- Job detection area -->
     <div id="job-found" class="job-card hidden">
+      <p id="dup-warning" class="dup-warning hidden"></p>
       <p class="job-role"></p>
       <p class="job-company"></p>
       <button id="add-btn" class="primary-btn">Add to Applytic</button>
       <p id="add-feedback" class="feedback hidden"></p>
+    </div>
+
+    <!-- Pending-queue indicator - only shown when something's unsynced -->
+    <div id="queue-indicator" class="queue-row hidden">
+      <span id="queue-count-text"></span>
+      <button id="manage-queue-btn" class="link-btn">Manage</button>
     </div>
 
     <div id="job-not-found" class="state hidden">
