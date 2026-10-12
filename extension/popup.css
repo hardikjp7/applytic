@@ -1,0 +1,166 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 300px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #fafafa;
+  color: #111827;
+  padding: 16px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #534ab7;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 15px;
+  color: #26215c;
+}
+
+.state.hidden, .hidden { display: none; }
+
+.msg {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.primary-btn {
+  width: 100%;
+  padding: 9px;
+  background: #534ab7;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.primary-btn:hover { background: #3c3489; }
+.primary-btn:disabled { opacity: 0.6; cursor: default; }
+
+.secondary-btn {
+  width: 100%;
+  padding: 9px;
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.secondary-btn:hover { background: #f3f4f6; }
+
+/* Compact auth status row - secondary to the job card now */
+.auth-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #eeedee;
+}
+
+.auth-label { flex: 1; }
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #534ab7;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+.link-btn:hover { text-decoration: underline; }
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+.status-dot-off { background: #d1d5db; }
+
+/* Job card - the main focus of the popup */
+.job-card {
+  background: white;
+  border: 1px solid #eeedee;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.job-role {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 2px;
+}
+
+.job-company {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.feedback {
+  font-size: 12px;
+  margin-top: 8px;
+  text-align: center;
+}
+.feedback-success { color: #16a34a; }
+.feedback-error { color: #dc2626; }
+
+.dup-warning {
+  font-size: 12px;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 10px;
+}
+
+.queue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eeedee;
+}
+
+.error-msg { color: #dc2626; margin-bottom: 12px; }
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #534ab7;
+  border-radius: 50%;
+  margin: 12px auto;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }

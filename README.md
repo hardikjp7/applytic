@@ -1,10 +1,10 @@
 # Applytic
 
 ![CI/CD](https://github.com/hardikjp7/applytic/actions/workflows/deploy.yml/badge.svg)
-![Version](https://img.shields.io/badge/version-v3.1.0-534ab7)
+![Version](https://img.shields.io/badge/version-v3.2.0-534ab7)
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
-**Current version:** v3.1.0 (Salary & Contact Tracking) - released August 2026 - see [CHANGELOG.md](./CHANGELOG.md) for full version history.
+**Current version:** v3.2.0 (Browser Extension) - released October 2026
 
 > AI-powered job application tracker that learns from your rejections.
 
@@ -115,6 +115,11 @@ So I instrumented my own job search. Every application became a data point. Afte
 **Contact tracking**
 - Add recruiter, hiring manager, or referral contacts to any application - name, email, LinkedIn, role
 - Quick access from the application detail view for follow-ups and referral networking
+
+**Browser extension**
+- Chrome extension (Manifest V3) that adds a job to your tracker straight from LinkedIn, Indeed, or Glassdoor - open the toolbar popup on a job posting and click Add
+- Signs in with the same Cognito account (OAuth PKCE), keeps a local queue when offline or signed out, and warns if the job is already tracked
+- **[Download the extension (v1.0.0)](https://github.com/hardikjp7/applytic/releases/latest/download/applytic-extension.zip)** - works in Chrome, Edge and Brave. It isn't on the Chrome Web Store, so it loads through Developer mode: unzip, open `chrome://extensions`, turn on Developer mode, click Load unpacked, and pick the folder. Full steps in [extension/README.md](./extension/README.md)
 
 **UI / UX**
 - Full dark mode with system preference detection, persisted to localStorage
@@ -314,6 +319,8 @@ Pipeline steps:
 
 **Streak computation** - looks back 8 weeks maximum, current week excluded (may be incomplete). Walks back week by week, breaks on first miss.
 
+**Popup-triggered extension** - the extension has no in-page UI. Content scripts only extract job data when the toolbar popup asks for it, which removes per-site button-placement code entirely; extraction relies on stable signals (document.title, test ids, URL patterns) rather than CSS classes, which LinkedIn and Indeed hash per build.
+
 ---
 
 ## Tech Stack
@@ -331,6 +338,7 @@ Pipeline steps:
 | Email | Amazon SES |
 | IaC | AWS CDK v2 TypeScript |
 | CI/CD | GitHub Actions |
+| Browser extension | Chrome Manifest V3, chrome.identity (OAuth PKCE via Cognito Hosted UI) |
 
 ---
 
@@ -358,6 +366,7 @@ applytic/
 │       ├── lib/            # API client, Amplify config, theme, csv utils
 │       ├── pages/          # Dashboard
 │       └── types/          # Shared TypeScript types
+├── extension/              # Chrome Manifest V3 extension (popup, background worker, content scripts)
 ├── tests/                  # 419 pytest tests (93.2% coverage)
 │   ├── test_applications.py
 │   ├── test_applications_integration.py

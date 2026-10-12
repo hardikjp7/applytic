@@ -216,6 +216,9 @@ export class ApplyticStack extends cdk.Stack {
           'https://hardikjp7.github.io/applytic',
           customDomain,
           customDomainApplytic,
+          // v3.2: browser extension - chrome.identity.launchWebAuthFlow redirect.
+          // Extension ID is fixed by the pinned key in extension/manifest.json.
+          'https://eghmfcibiaehpeaekkpnogbfbnelfakj.chromiumapp.org/',
         ],
         logoutUrls: [
           `${cloudfrontDomain}/`,
@@ -305,7 +308,7 @@ export class ApplyticStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/digest')),
       handler: 'handler.lambda_handler',
       description: 'Weekly email digest via SES',
-      environment: { ...commonEnv, SES_FROM_EMAIL: 'hi@hardikjp7.com' },
+      environment: { ...commonEnv, SES_FROM_EMAIL: 'insights@hardikjp7.com' },
     });
 
     // v3.1.1 fix: was grantReadData only. digest/handler.py's store_alerts()
@@ -361,7 +364,7 @@ export class ApplyticStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/followup')),
       handler: 'handler.lambda_handler',
       description: 'v2.0 - Daily follow-up reminder emails for overdue applications',
-      environment: { ...commonEnv, SES_FROM_EMAIL: 'hi@hardikjp7.com' },
+      environment: { ...commonEnv, SES_FROM_EMAIL: 'notifications@hardikjp7.com' },
     });
 
     table.grantReadData(followUpLambda);
@@ -595,6 +598,8 @@ export class ApplyticStack extends cdk.Stack {
           'https://hardikjp7.github.io',
           customDomain,
           customDomainApplytic,
+          // v3.2: browser extension background worker calls POST /applications directly
+          'chrome-extension://eghmfcibiaehpeaekkpnogbfbnelfakj',
         ],
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],

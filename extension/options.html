@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Applytic - Options</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="header">
+    <div class="logo">A</div>
+    <span class="title">applytic</span>
+  </div>
+
+  <div class="auth-row">
+    <span id="auth-dot" class="status-dot status-dot-off"></span>
+    <span id="auth-label" class="auth-label">Checking...</span>
+    <button id="auth-action-btn" class="link-btn"></button>
+  </div>
+
+  <section class="section">
+    <div class="section-header">
+      <h2>Pending sync queue</h2>
+      <button id="sync-now-btn" class="secondary-btn-sm">Sync now</button>
+    </div>
+    <p class="section-hint">Items land here when you add a job while signed out or offline. They sync automatically on sign-in, or you can retry manually above.</p>
+    <div id="queue-list" class="queue-list"></div>
+    <p id="queue-empty" class="msg hidden">Nothing queued.</p>
+  </section>
+
+  <section class="section">
+    <h2>Supported sites</h2>
+    <ul class="site-list">
+      <li><strong>LinkedIn</strong> - linkedin.com/jobs/*</li>
+      <li><strong>Indeed</strong> - indeed.com and regional subdomains (e.g. in.indeed.com)</li>
+      <li><strong>Glassdoor</strong> - glassdoor.com, .co.in, .co.uk, .ca, .com.au, .de, .fr, .ie, .sg</li>
+    </ul>
+  </section>
+
+  <script src="options.js" type="module"></script>
+</body>
+</html>

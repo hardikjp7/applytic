@@ -4,6 +4,50 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.2.0] - 2026-10-11
+
+### Added
+
+**Browser extension (Chrome, Manifest V3)** - `extension/`
+- Add a job from LinkedIn, Indeed, or Glassdoor to the tracker from the toolbar popup, with no manual entry. No in-page UI: content scripts only extract data when the popup asks, so there is no per-site DOM injection to maintain
+- Sign-in via `chrome.identity.launchWebAuthFlow` (OAuth PKCE) against the existing Cognito Hosted UI and the existing public client - no new Cognito resources. Tokens kept in `chrome.storage.local` with silent refresh
+- LinkedIn adds as source `linkedin`; Indeed and Glassdoor add as `job-board`. Records are created with `status: applied` through the existing `POST /applications`
+- Offline/signed-out queue: adds that cannot sync are kept locally and drained after sign-in or before the next add. Non-retryable errors (validation) surface the real API message instead of queueing
+- Duplicate detection: the popup compares the posting against `GET /applications` (job URL first, then company+role, case-insensitive) and shows the existing record's status. It never blocks Add
+- Options page: view and remove queued items, manual "Sync now", auth status, supported sites
+- Extraction verified on live pages: LinkedIn from `document.title` plus the company profile link; Indeed from `data-testid` hooks and `/cmp/` links; Glassdoor from the job-title id and a CSS-module class prefix
+- Indeed regional subdomains supported via wildcard; Glassdoor supported on .com, .co.in, .co.uk, .ca, .com.au, .de, .fr, .ie, .sg
+
+### Changed
+- Mid-cycle design pivot: the original plan (an injected in-page "Add to Applytic" button) was replaced by the popup flow after LinkedIn's hashed class names made reliable placement impractical (see Issues 49-54)
+- Lambda sender addresses moved to the verified `hardikjp7.com` SES domain: follow-up reminders send from `notifications@hardikjp7.com`, the weekly digest from `insights@hardikjp7.com`. CDK environment config only, no handler change
+
+### Fixed (found during live testing of the extension)
+- LinkedIn job title and company had no usable CSS selectors, so the in-page button never appeared
+- Debounced MutationObserver never re-ran on a page that never stops mutating
+- Content scripts never loaded on regional Indeed and Glassdoor domains
+- Indeed extraction failed because of a wrong iframe theory
+- Indeed company name was wrong: self-promo link and two different page markups
+- Popup showed 'Connected' and 'Not signed in' at the same time
+
+### Infrastructure
+- Cognito `UserPoolClient` `callbackUrls`: added `https://eghmfcibiaehpeaekkpnogbfbnelfakj.chromiumapp.org/`
+- API Gateway `defaultCorsPreflightOptions.allowOrigins` and `shared/middleware.py` `ALLOWED_ORIGINS`: added `chrome-extension://eghmfcibiaehpeaekkpnogbfbnelfakj`
+- No new routes, tables, or Lambdas. `build_layer.sh` does not need re-running (`middleware.py` ships as source)
+
+### Tests
+- No automated tests were added for the extension: DOM scraping and `chrome.*` APIs are not covered by the existing suites. Verified manually against live LinkedIn, Indeed (search panel and standalone page) and Glassdoor (.co.in). Backend and frontend suites are unchanged
+
+### Known limitations
+- The offline queue retries only on sign-in or the next Add (no periodic `chrome.alarms` flush)
+- Site selectors will drift as LinkedIn, Indeed and Glassdoor redesign and need periodic spot-checks
+- Glassdoor country domains are listed explicitly and are not exhaustive
+
+### Upgrade notes
+- Run `cdk deploy` before the extension can sign in or sync (callback URL and CORS changes). Load the extension unpacked from `extension/`; it is not yet published to the Chrome Web Store
+
+---
+
 ## [3.1.1] - 2026-09-06
 
 ### Changed
