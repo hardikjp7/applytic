@@ -119,7 +119,7 @@ So I instrumented my own job search. Every application became a data point. Afte
 **Browser extension**
 - Chrome extension (Manifest V3) that adds a job to your tracker straight from LinkedIn, Indeed, or Glassdoor - open the toolbar popup on a job posting and click Add
 - Signs in with the same Cognito account (OAuth PKCE), keeps a local queue when offline or signed out, and warns if the job is already tracked
-- Load unpacked from `extension/` (see [extension/README.md](./extension/README.md)); not yet published to the Chrome Web Store
+- **[Download the extension (v1.0.0)](https://github.com/hardikjp7/applytic/releases/latest/download/applytic-extension.zip)** - works in Chrome, Edge and Brave. It isn't on the Chrome Web Store, so it loads through Developer mode: unzip, open `chrome://extensions`, turn on Developer mode, click Load unpacked, and pick the folder. Full steps in [extension/README.md](./extension/README.md)
 
 **UI / UX**
 - Full dark mode with system preference detection, persisted to localStorage
