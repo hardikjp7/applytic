@@ -604,8 +604,8 @@ def compute_patterns(apps: list) -> dict:
         "statusHistory": _compute_status_history(apps),
 
         # v3.1 additions
-        "funnel": _compute_funnel(apps),
-        "responseRateTimeSeries": _compute_response_rate_time_series(apps),
+        "salaryInsights": _compute_salary_insights(apps),
+        "salaryDistribution": _compute_salary_distribution(apps),
         "statusHistory": _compute_status_history(apps),
         # v3.1
         "salaryInsights": _compute_salary_insights(apps),

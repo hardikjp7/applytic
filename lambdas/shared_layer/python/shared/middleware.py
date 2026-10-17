@@ -21,6 +21,8 @@ ALLOWED_ORIGINS = [
     "https://d3jumje9o63lys.cloudfront.net",
     "https://hardikjp7.github.io",
     "https://hardikjp7.com",
+    # v3.2.1: local dev against the deployed API (still needs a valid JWT)
+    "http://localhost:5173",
     # v3.2: browser extension - chrome extension origins are stable per-ID
     "chrome-extension://eghmfcibiaehpeaekkpnogbfbnelfakj",
 ]

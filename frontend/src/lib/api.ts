@@ -52,11 +52,12 @@ export const uploadResumeToS3 = async (
   uploadUrl: string,
   file: File
 ): Promise<void> => {
-  await fetch(uploadUrl, {
+  const res = await fetch(uploadUrl, {
     method: 'PUT',
     body: file,
     headers: { 'Content-Type': 'application/pdf' },
   })
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`)
 }
 
 export const listResumes = async (): Promise<{ versionName: string; filename: string; uploadedAt: string }[]> => {

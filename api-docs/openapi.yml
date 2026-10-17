@@ -309,7 +309,7 @@ paths:
       operationId: generateInterviewPrep
       tags: [Interview Prep]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - $ref: '#/components/parameters/AppId'
       responses:
@@ -338,7 +338,7 @@ paths:
       operationId: getInterviewPrep
       tags: [Interview Prep]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - $ref: '#/components/parameters/AppId'
       responses:
@@ -369,7 +369,7 @@ paths:
       operationId: updateInterviewQuestion
       tags: [Interview Prep]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - $ref: '#/components/parameters/AppId'
         - name: questionId
@@ -416,7 +416,7 @@ paths:
       operationId: listAlerts
       tags: [Alerts]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       responses:
         '200':
           description: Active alerts (may be empty array)
@@ -444,7 +444,7 @@ paths:
       operationId: dismissAlert
       tags: [Alerts]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - name: alertId
           in: path

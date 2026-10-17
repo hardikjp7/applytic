@@ -19,11 +19,13 @@ Amplify.configure({
             'https://d3jumje9o63lys.cloudfront.net/auth/callback',
             'https://hardikjp7.com/applytic/auth/callback',
             'https://hardikjp7.github.io/applytic/auth/callback',
+            'http://localhost:5173/auth/callback',
           ],
           redirectSignOut: [
             'https://d3jumje9o63lys.cloudfront.net/',
             'https://hardikjp7.com/applytic/',
             'https://hardikjp7.github.io/applytic/',
+            'http://localhost:5173/',
           ],
           responseType: 'code',
         },

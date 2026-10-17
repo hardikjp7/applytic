@@ -22,6 +22,15 @@ export function useApplications() {
     onError: () => toast.error('Failed to add application'),
   })
 
+  // v3.2.1: CSV import path - same call and cache update as create, but no
+  // per-row toast (the import modal and KanbanBoard show one summary toast).
+  const importMutation = useMutation({
+    mutationFn: createApplication,
+    onSuccess: (app) => {
+      qc.setQueryData<Application[]>(APPLICATIONS_KEY, prev => [app, ...(prev ?? [])])
+    },
+  })
+
   const updateMutation = useMutation({
     mutationFn: ({ appId, data }: { appId: string; data: Partial<Application> }) =>
       updateApplication(appId, data),
@@ -70,6 +79,8 @@ export function useApplications() {
     loading,
     create: (data: Omit<Application, 'appId' | 'userId' | 'createdAt' | 'updatedAt'>) =>
       createMutation.mutateAsync(data),
+    createQuiet: (data: Omit<Application, 'appId' | 'userId' | 'createdAt' | 'updatedAt'>) =>
+      importMutation.mutateAsync(data),
     update: (appId: string, data: Partial<Application>) =>
       updateMutation.mutate({ appId, data }),
     remove: (appId: string) =>

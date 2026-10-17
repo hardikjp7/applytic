@@ -216,6 +216,7 @@ export class ApplyticStack extends cdk.Stack {
           'https://hardikjp7.github.io/applytic',
           customDomain,
           customDomainApplytic,
+          'http://localhost:5173/auth/callback',
           // v3.2: browser extension - chrome.identity.launchWebAuthFlow redirect.
           // Extension ID is fixed by the pinned key in extension/manifest.json.
           'https://eghmfcibiaehpeaekkpnogbfbnelfakj.chromiumapp.org/',
@@ -224,6 +225,7 @@ export class ApplyticStack extends cdk.Stack {
           `${cloudfrontDomain}/`,
           'https://hardikjp7.github.io/applytic/',
           `${customDomainApplytic}/`,
+          'http://localhost:5173/',
         ],
       },
       supportedIdentityProviders: [
@@ -600,6 +602,7 @@ export class ApplyticStack extends cdk.Stack {
           customDomainApplytic,
           // v3.2: browser extension background worker calls POST /applications directly
           'chrome-extension://eghmfcibiaehpeaekkpnogbfbnelfakj',
+          'http://localhost:5173',
         ],
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],
