@@ -14,6 +14,7 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import * as path from 'path';
@@ -47,7 +48,6 @@ export class ApplyticStack extends cdk.Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       lifecycleRules: [{ noncurrentVersionExpiration: cdk.Duration.days(90) }],
-      cors: [{ allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET], allowedOrigins: ['*'], allowedHeaders: ['*'], maxAge: 3000 }],
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -89,6 +89,15 @@ export class ApplyticStack extends cdk.Stack {
     const cloudfrontDomain = `https://${distribution.distributionDomainName}`;
     const customDomain = 'https://hardikjp7.com';
     const customDomainApplytic = 'https://hardikjp7.com/applytic';
+
+    // v3.2.1: resume bucket CORS limited to the app's own origins (was '*').
+    // Browser PUTs go straight to S3 via presigned URLs from these origins.
+    resumeBucket.addCorsRule({
+      allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET],
+      allowedOrigins: [cloudfrontDomain, 'https://hardikjp7.github.io', customDomain, 'http://localhost:5173'],
+      allowedHeaders: ['*'],
+      maxAge: 3000,
+    });
 
     // ─── Cognito ──────────────────────────────────────────────────────────────
     const userPool = new cognito.UserPool(this, 'UserPool', {
@@ -432,7 +441,7 @@ export class ApplyticStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/interview_prep')),
       handler: 'handler.lambda_handler',
       description: 'v3.0 - Interview prep question generation via Bedrock',
-      environment: commonEnv,
+      environment: { ...commonEnv, PREP_DAILY_LIMIT: '10' },
     });
 
     table.grantReadWriteData(interviewPrepLambda);
@@ -476,7 +485,40 @@ export class ApplyticStack extends cdk.Stack {
       topicName: 'applytic-alarms',
       displayName: 'Applytic CloudWatch Alarms',
     });
-    alarmTopic.addSubscription(new snsSubscriptions.EmailSubscription('hardikjparmar7@gmail.com'));
+    const alertEmail = 'hardikjparmar7@gmail.com';
+    alarmTopic.addSubscription(new snsSubscriptions.EmailSubscription(alertEmail));
+
+    // v3.2.1: monthly cost guardrail. AWS Budgets, not a billing CloudWatch
+    // alarm - it does not depend on the account's "receive billing alerts"
+    // preference. Covers the whole AWS account, not just this stack.
+    new budgets.CfnBudget(this, 'MonthlyCostBudget', {
+      budget: {
+        budgetName: 'applytic-monthly-cost',
+        budgetType: 'COST',
+        timeUnit: 'MONTHLY',
+        budgetLimit: { amount: 20, unit: 'USD' },
+      },
+      notificationsWithSubscribers: [
+        {
+          notification: {
+            notificationType: 'ACTUAL',
+            comparisonOperator: 'GREATER_THAN',
+            threshold: 80,
+            thresholdType: 'PERCENTAGE',
+          },
+          subscribers: [{ subscriptionType: 'EMAIL', address: alertEmail }],
+        },
+        {
+          notification: {
+            notificationType: 'FORECASTED',
+            comparisonOperator: 'GREATER_THAN',
+            threshold: 100,
+            thresholdType: 'PERCENTAGE',
+          },
+          subscribers: [{ subscriptionType: 'EMAIL', address: alertEmail }],
+        },
+      ],
+    });
 
     // ─── CloudWatch alarms ────────────────────────────────────────────────────
     const alarmDefaults = {
@@ -611,9 +653,13 @@ export class ApplyticStack extends cdk.Stack {
       deployOptions: {
         stageName: 'v1',
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
-        dataTraceEnabled: true,
+        dataTraceEnabled: false,   // v3.2.1: was true - logged request/response bodies and Authorization headers
         metricsEnabled: true,
         tracingEnabled: true,
+        // v3.2.1: stage-wide defaults, applied per method. Starting values;
+        // the dashboard loads several routes in parallel, so keep burst well above rate.
+        throttlingRateLimit: 20,
+        throttlingBurstLimit: 40,
       },
     });
 

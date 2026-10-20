@@ -17,6 +17,7 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
 from shared.middleware import now_iso
+from shared.pagination import paginate_query, paginate_scan
 
 dynamodb = boto3.resource("dynamodb")
 bedrock = boto3.client("bedrock-runtime")
@@ -30,6 +31,11 @@ table = dynamodb.Table(TABLE_NAME)
 logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 tracer = Tracer(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 
+
+def _mask_email(email: str) -> str:
+    local, _, domain = (email or "").partition("@")
+    return f"{local[:1]}***@{domain}" if domain else "***"
+
 # ── v3.0: rejection pattern alert thresholds ──────────────────────────────────
 MIN_APPS_FOR_ZERO_RESPONSE_ALERT = 5
 RESPONSE_RATE_DROP_THRESHOLD_PP = 20  # percentage points
@@ -40,14 +46,15 @@ RESPONDED_STATUSES = {"screened", "interview", "offer"}
 @tracer.capture_method
 def get_active_users() -> list[dict]:
     one_week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    result = table.scan(
+    items = paginate_scan(
+        table,
         FilterExpression=Attr("entityType").eq("APPLICATION") &
                          Attr("updatedAt").gte(one_week_ago),
         ProjectionExpression="userId, GSI1PK",
     )
     seen = set()
     users = []
-    for item in result.get("Items", []):
+    for item in items:
         uid = item.get("userId")
         if uid and uid not in seen:
             seen.add(uid)
@@ -57,11 +64,12 @@ def get_active_users() -> list[dict]:
 
 @tracer.capture_method
 def get_user_apps(user_id: str) -> list:
-    result = table.query(
+    items = paginate_query(
+        table,
         IndexName="GSI1",
         KeyConditionExpression=Key("GSI1PK").eq(f"USER#{user_id}"),
     )
-    return [i for i in result["Items"] if i.get("entityType") == "APPLICATION"]
+    return [i for i in items if i.get("entityType") == "APPLICATION"]
 
 
 @tracer.capture_method
@@ -312,7 +320,7 @@ def lambda_handler(event, context: LambdaContext):
             html = build_email_html(apps, week_events, tip, email, alerts=alert_messages)
             send_digest(email, html)
             sent += 1
-            logger.info("Digest sent", extra={"email": email, "alert_count": len(alert_messages)})
+            logger.info("Digest sent", extra={"email": _mask_email(email), "alert_count": len(alert_messages)})
         except Exception:
             logger.exception(f"Failed digest for user {user_id}")
             failed += 1

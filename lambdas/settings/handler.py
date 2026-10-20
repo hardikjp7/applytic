@@ -26,6 +26,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from shared.middleware import resp, get_user_id, parse_body, now_iso
+from shared.pagination import paginate_query
 
 dynamodb = boto3.resource("dynamodb")
 TABLE_NAME = os.environ["TABLE_NAME"]
@@ -94,11 +95,12 @@ def compute_streak(user_id: str, weekly_goal: int) -> tuple[int, str]:
 
     Returns (streak_count, today_str).
     """
-    result = table.query(
+    items = paginate_query(
+        table,
         IndexName="GSI1",
         KeyConditionExpression=Key("GSI1PK").eq(f"USER#{user_id}"),
     )
-    apps = [i for i in result.get("Items", []) if i.get("entityType") == "APPLICATION"]
+    apps = [i for i in items if i.get("entityType") == "APPLICATION"]
 
     now = datetime.now(timezone.utc)
     today_str = now.strftime("%Y-%m-%d")
@@ -192,11 +194,11 @@ def list_alerts(user_id: str, include_dismissed: bool = False) -> list[dict]:
     Returns ALERT# items for a user, newest first.
     By default excludes dismissed alerts (used for the Dashboard banner).
     """
-    result = table.query(
+    items = paginate_query(
+        table,
         KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("ALERT#"),
         ScanIndexForward=False,  # newest first
     )
-    items = result.get("Items", [])
     if not include_dismissed:
         items = [i for i in items if not i.get("dismissed", False)]
     return items
@@ -208,10 +210,10 @@ def dismiss_alert(user_id: str, alert_id: str) -> bool:
     Marks an alert as dismissed. Returns True if found and updated,
     False if no alert with that id exists for the user.
     """
-    result = table.query(
+    items = paginate_query(
+        table,
         KeyConditionExpression=Key("PK").eq(f"USER#{user_id}") & Key("SK").begins_with("ALERT#"),
     )
-    items = result.get("Items", [])
     match = next((i for i in items if i.get("alertId") == alert_id), None)
     if not match:
         return False

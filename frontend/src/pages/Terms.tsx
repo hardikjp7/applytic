@@ -73,6 +73,10 @@ export default function Terms() {
             The AI Coach chat is limited to 20 messages per user per day to keep Bedrock costs
             manageable. This limit resets at midnight UTC.
           </p>
+          <p>
+            Interview question generation is limited to 10 generations per user per day, also
+            resetting at midnight UTC.
+          </p>
         </Section>
 
         <Section title="Your account">

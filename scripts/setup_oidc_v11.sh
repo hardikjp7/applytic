@@ -88,6 +88,7 @@ DEPLOY_POLICY=$(cat <<EOF
         "logs:*",
         "cloudwatch:*",
         "sns:*",
+        "budgets:*",
         "bedrock:*",
         "ses:*",
         "sts:AssumeRole"

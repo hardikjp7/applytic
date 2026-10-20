@@ -29,6 +29,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from pydantic import BaseModel, field_validator
 
 from shared.middleware import resp, get_user_id, parse_body, now_iso
+from shared.pagination import paginate_query
 
 dynamodb = boto3.resource("dynamodb")
 bedrock = boto3.client("bedrock-runtime")
@@ -44,6 +45,7 @@ tracer = Tracer(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 # v3.0: context enrichment limits
 NOTES_PER_APP_LIMIT = 5
 MAX_INTERVIEW_APPS_FOR_CONTEXT = 20  # safety cap, matches recent-apps cap below
+MAX_CHAT_MESSAGE_LENGTH = 1000  # v3.2.1
 
 
 class ChatRequest(BaseModel):
@@ -55,6 +57,8 @@ class ChatRequest(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("message must not be empty")
+        if len(v) > MAX_CHAT_MESSAGE_LENGTH:
+            raise ValueError(f"message must be {MAX_CHAT_MESSAGE_LENGTH} characters or less")
         return v
 
 
@@ -407,11 +411,12 @@ def check_rate_limit(user_id: str) -> tuple[bool, int]:
 
 @tracer.capture_method
 def fetch_all_applications(user_id: str) -> list:
-    result = table.query(
+    items = paginate_query(
+        table,
         IndexName="GSI1",
         KeyConditionExpression=Key("GSI1PK").eq(f"USER#{user_id}"),
     )
-    return [item for item in result["Items"] if item.get("entityType") == "APPLICATION"]
+    return [item for item in items if item.get("entityType") == "APPLICATION"]
 
 
 # ── v3.0: context enrichment ──────────────────────────────────────────────────

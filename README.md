@@ -367,7 +367,7 @@ applytic/
 │       ├── pages/          # Dashboard
 │       └── types/          # Shared TypeScript types
 ├── extension/              # Chrome Manifest V3 extension (popup, background worker, content scripts)
-├── tests/                  # 419 pytest tests (93.2% coverage)
+├── tests/                  # pytest unit + moto integration tests
 │   ├── test_applications.py
 │   ├── test_applications_integration.py
 │   ├── test_insights.py
@@ -456,8 +456,8 @@ All routes protected by Cognito JWT authorizer.
 | Cost at 0 users | ~$0/month |
 | Cost at 100 users | ~$2-5/month |
 | Cost at 1,000 users | ~$15-30/month |
-| Backend test suite | 419 tests, 70% coverage threshold (93.2% actual) |
-| Frontend test suite | 34 Vitest tests |
+| Backend test suite | pytest + moto, 70% coverage threshold enforced in CI |
+| Frontend test suite | Vitest + React Testing Library |
 | Full CDK deploy from scratch | under 3 minutes |
 
 ---
@@ -466,8 +466,8 @@ All routes protected by Cognito JWT authorizer.
 
 ```
 push to main
-    ├── test (pytest 410 tests, 70% coverage threshold)
-    ├── test-frontend (vitest 31 tests)
+    ├── test (pytest, 70% coverage threshold)
+    ├── test-frontend (vitest)
     └── (both must pass before)
             ├── deploy-backend (cdk deploy)
             ├── deploy-frontend-aws (s3 sync + cloudfront invalidation)

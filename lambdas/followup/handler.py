@@ -19,6 +19,7 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
 from shared.middleware import now_iso
+from shared.pagination import paginate_scan
 
 dynamodb = boto3.resource("dynamodb")
 ses = boto3.client("ses")
@@ -46,7 +47,8 @@ def get_overdue_followups() -> list[dict]:
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    result = table.scan(
+    return paginate_scan(
+        table,
         FilterExpression=(
             Attr("entityType").eq("APPLICATION") &
             Attr("followUpDate").exists() &
@@ -56,7 +58,6 @@ def get_overdue_followups() -> list[dict]:
         ProjectionExpression="appId, userId, company, #r, followUpDate, #s, dateApplied",
         ExpressionAttributeNames={"#r": "role", "#s": "status"},
     )
-    return result.get("Items", [])
 
 
 @tracer.capture_method

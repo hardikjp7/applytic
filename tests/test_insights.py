@@ -216,3 +216,14 @@ class TestBuildContextForLlm:
         context = build_context_for_llm(apps, patterns)
         company_lines = [l for l in context.split('\n') if 'Co' in l and '|' in l]
         assert len(company_lines) <= 20
+
+
+class TestChatRequestLimit:
+
+    def test_message_over_limit_is_rejected(self):
+        with pytest.raises(Exception):
+            _mod.ChatRequest(message="x" * (_mod.MAX_CHAT_MESSAGE_LENGTH + 1))
+
+    def test_message_at_limit_is_accepted(self):
+        req = _mod.ChatRequest(message="x" * _mod.MAX_CHAT_MESSAGE_LENGTH)
+        assert len(req.message) == _mod.MAX_CHAT_MESSAGE_LENGTH

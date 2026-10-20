@@ -15,6 +15,11 @@ ses = boto3.client("ses")
 logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 
 
+def _mask_email(email: str) -> str:
+    local, _, domain = (email or "").partition("@")
+    return f"{local[:1]}***@{domain}" if domain else "***"
+
+
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     """
     Cognito requires this function to return the event unchanged.
@@ -33,7 +38,7 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             result = ses.get_identity_verification_attributes(Identities=[email])
             status = result["VerificationAttributes"].get(email, {}).get("VerificationStatus")
             if status == "Success":
-                logger.info("Email already SES-verified, skipping", extra={"email": email})
+                logger.info("Email already SES-verified, skipping", extra={"email": _mask_email(email)})
                 return event
         except Exception:
             pass  # If check fails, proceed with verification attempt
@@ -42,7 +47,7 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         ses.verify_email_identity(EmailAddress=email)
 
         logger.info("SES verification email sent", extra={
-            "email": email,
+            "email": _mask_email(email),
             "trigger_source": event.get("triggerSource"),
         })
 

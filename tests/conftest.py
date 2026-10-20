@@ -18,6 +18,17 @@ os.environ.setdefault('BEDROCK_MODEL_ID', 'amazon.nova-lite-v1:0')
 os.environ.setdefault('LOG_LEVEL', 'INFO')
 os.environ.setdefault('POWERTOOLS_SERVICE_NAME', 'applytic')
 
+import importlib.util
+import sys
+
+_pag_path = os.path.abspath(os.path.join(
+    os.path.dirname(__file__), '..', 'lambdas', 'shared_layer', 'python', 'shared', 'pagination.py'
+))
+_pag_spec = importlib.util.spec_from_file_location('shared.pagination', _pag_path)
+_pag_mod = importlib.util.module_from_spec(_pag_spec)
+_pag_spec.loader.exec_module(_pag_mod)
+sys.modules['shared.pagination'] = _pag_mod
+
 
 def make_event(method='GET', path='/applications', path_params=None, body=None, user_id='test-user-123'):
     """Build a mock API Gateway event."""

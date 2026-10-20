@@ -20,7 +20,8 @@ export function useInterviewPrep(appId: string) {
       qc.setQueryData<InterviewPrep | null>(interviewPrepKey(appId), newPrep)
       toast.success('Interview questions generated')
     },
-    onError: () => toast.error('Failed to generate questions'),
+    onError: (err: any) =>
+      toast.error(err?.response?.data?.error ?? 'Failed to generate questions'),
   })
 
   const updateQuestionMutation = useMutation({

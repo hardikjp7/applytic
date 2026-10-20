@@ -27,13 +27,17 @@ Job description fetching:
   - If fetch fails for any reason, falls back to role + company name only
   - Never blocks the user on URL fetch failure
 """
+import ipaddress
 import json
 import os
 import re
+import socket
 import uuid
+from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from urllib import request as urllib_request
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlparse
 
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
@@ -58,6 +62,11 @@ tracer = Tracer(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 JD_MAX_CHARS = 3000
 FETCH_TIMEOUT = 5  # seconds
 NUM_QUESTIONS = 10
+
+# v3.2.1: SSRF guard + per-user daily cap on generate calls
+MAX_REDIRECTS = 3
+ALLOWED_FETCH_PORTS = {80, 443}
+PREP_DAILY_LIMIT = int(os.environ.get("PREP_DAILY_LIMIT", "10"))
 
 
 class UpdateQuestionRequest(BaseModel):
@@ -84,6 +93,34 @@ def verify_application_owner(user_id: str, app_id: str) -> Optional[dict]:
         Key={"PK": f"USER#{user_id}", "SK": f"APP#{app_id}"},
     )
     return result.get("Item")
+
+
+@tracer.capture_method
+def check_generate_limit(user_id: str) -> tuple[bool, int]:
+    """
+    Daily cap on POST .../generate (each call is a Bedrock invocation).
+    Same pattern as the AI Coach limiter in insights/handler.py, separate
+    counter: PK=RATELIMIT#{userId}, SK=PREPGEN#{YYYY-MM-DD}, TTL 2 days.
+    Fails open on error but logs at ERROR level - the chat limiter failed
+    open silently for months (v3.1.1 IAM lesson), so this one must be loud.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        result = table.update_item(
+            Key={"PK": f"RATELIMIT#{user_id}", "SK": f"PREPGEN#{now.strftime('%Y-%m-%d')}"},
+            UpdateExpression="ADD #count :inc SET #ttl = :ttl",
+            ExpressionAttributeNames={"#count": "count", "#ttl": "ttl"},
+            ExpressionAttributeValues={
+                ":inc": 1,
+                ":ttl": int((now + timedelta(days=2)).timestamp()),
+            },
+            ReturnValues="UPDATED_NEW",
+        )
+        count = int(result["Attributes"]["count"])
+        return count <= PREP_DAILY_LIMIT, max(0, PREP_DAILY_LIMIT - count)
+    except Exception:
+        logger.exception("PREP RATE LIMIT CHECK FAILED - allowing request")
+        return True, PREP_DAILY_LIMIT
 
 class _TextExtractor(HTMLParser):
     """
@@ -138,23 +175,89 @@ def _strip_html(raw: str) -> str:
     return collapsed.strip()
 
 
+class UnsafeUrlError(ValueError):
+    """Raised when a job description URL points somewhere we must not fetch."""
+
+
+def _is_public_ip(address: str) -> bool:
+    ip = ipaddress.ip_address(address.split("%")[0])  # strip IPv6 scope id
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped  # ::ffff:127.0.0.1 must be judged as 127.0.0.1
+    return ip.is_global and not ip.is_multicast
+
+
+def _assert_public_url(url: str) -> None:
+    """
+    Raises UnsafeUrlError unless the URL is http(s) on port 80/443 and its
+    host resolves ONLY to public addresses. Judging the resolved address (not
+    the hostname text) also catches 127.1, 0x7f.1, 2130706433 and
+    names that resolve to private ranges.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise UnsafeUrlError("scheme not allowed")
+    host = parsed.hostname
+    if not host or parsed.username or parsed.password:
+        raise UnsafeUrlError("host missing or credentials in URL")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if port not in ALLOWED_FETCH_PORTS:
+        raise UnsafeUrlError("port not allowed")
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise UnsafeUrlError("host does not resolve") from e
+    addresses = {info[4][0] for info in infos}
+    if not addresses or not all(_is_public_ip(a) for a in addresses):
+        raise UnsafeUrlError("host resolves to a non-public address")
+
+
+class _NoRedirectHandler(urllib_request.HTTPRedirectHandler):
+    """Return None so urllib raises HTTPError on 3xx; we follow hops ourselves."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_opener = urllib_request.build_opener(_NoRedirectHandler)
+_REDIRECT_CODES = {301, 302, 303, 307, 308}
+
+
 @tracer.capture_method
 def fetch_job_description(url: str) -> str:
     """
     Fetches job description text from a URL.
     Returns up to JD_MAX_CHARS of stripped text.
     Returns empty string on any failure - caller falls back gracefully.
+
+    v3.2.1: every hop (the original URL and each redirect, max MAX_REDIRECTS)
+    is checked by _assert_public_url before it is requested.
+    Known limit: urllib resolves the host again when it connects, so a DNS
+    rebinding attacker could still race between our check and the connect.
     """
     if not url or not url.startswith(("http://", "https://")):
         return ""
+    current = url
     try:
-        req = urllib_request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; Applytic/3.0)"},
-        )
-        with urllib_request.urlopen(req, timeout=FETCH_TIMEOUT) as response:
-            raw = response.read(50_000).decode("utf-8", errors="ignore")
-        return _strip_html(raw)[:JD_MAX_CHARS]
+        for _ in range(MAX_REDIRECTS + 1):
+            _assert_public_url(current)
+            req = urllib_request.Request(
+                current,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; Applytic/3.0)"},
+            )
+            try:
+                with _opener.open(req, timeout=FETCH_TIMEOUT) as response:
+                    raw = response.read(50_000).decode("utf-8", errors="ignore")
+                return _strip_html(raw)[:JD_MAX_CHARS]
+            except HTTPError as e:
+                location = e.headers.get("Location") if e.code in _REDIRECT_CODES else None
+                if not location:
+                    raise
+                current = urljoin(current, location)
+        logger.warning("JD fetch stopped - too many redirects", extra={"url": url})
+        return ""
+    except UnsafeUrlError as e:
+        logger.warning("JD fetch blocked - unsafe URL", extra={"url": url, "reason": str(e)})
+        return ""
     except Exception as e:
         logger.warning("JD fetch failed - using fallback", extra={"url": url, "error": str(e)})
         return ""
@@ -355,6 +458,14 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             app = verify_application_owner(user_id, app_id)
             if not app:
                 return resp(404, {"error": "Application not found"}, event)
+
+            # v3.2.1: checked after the ownership test so a bad appId cannot burn quota
+            allowed, _remaining = check_generate_limit(user_id)
+            if not allowed:
+                return resp(429, {
+                    "error": f"Daily limit reached. You can generate interview questions up to {PREP_DAILY_LIMIT} times per day.",
+                    "rateLimited": True,
+                }, event)
 
             role = app.get("role", "Software Engineer")
             company = app.get("company", "the company")
