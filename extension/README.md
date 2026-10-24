@@ -4,7 +4,7 @@ Add a job to your [Applytic](https://hardikjp7.github.io/applytic) tracker strai
 
 Open a job on LinkedIn, Indeed, or Glassdoor, click the Applytic icon in your toolbar, and hit **Add to Applytic**. The company, role, and link are filled in for you.
 
-**Version:** 1.0.0 | **Works in:** Chrome, Edge, Brave and other Chromium browsers (tested in Brave) | **License:** Apache 2.0
+**Version:** 1.0.1 | **Works in:** Chrome, Edge, Brave and other Chromium browsers (tested in Brave) | **License:** Apache 2.0
 
 ---
 

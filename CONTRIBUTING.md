@@ -209,6 +209,9 @@ docs: add CONTRIBUTING.md and PR template
 - Use type hints where practical
 - Keep handlers focused — route logic in the handler, business logic in helper functions
 - All new Lambda routes need corresponding unit tests in `tests/`
+- DynamoDB `query`/`scan` calls without `Limit` must go through `shared.pagination` (`paginate_query` / `paginate_scan`): a single call silently stops at 1 MB. Any new shared helper must also be registered in `tests/conftest.py`, because the test files stub `shared.middleware` inline
+- Validate input at create/update time only; never reject stored data on read
+- Anything that fetches a user-supplied URL must go through the SSRF guard in `interview_prep/handler.py`
 
 ### TypeScript / React (Frontend)
 - Use functional components with hooks

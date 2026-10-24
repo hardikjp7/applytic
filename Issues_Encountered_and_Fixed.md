@@ -328,3 +328,99 @@ Full list of issues encountered during the development of Applytic, and how each
 * **Issue:** Auth state was modeled as two separate elements toggled with hidden classes that had to be exact opposites, and they desynced.
 
 * **Fix:** Collapsed into a single auth row whose label, dot colour and button handler are all set from one signedIn value, so contradictory states cannot render.
+
+### 55. Contacts section rendered inside the notes wrapper (v3.2.1)
+
+* **Issue:** In `ApplicationDetailModal.tsx` the Contacts block sat inside the notes wrapper `<div>`, so the "Add a note..." input rendered below Contacts instead of directly under the notes list.
+
+* **Fix:** Moved the add-note input up next to the notes list, closed the notes wrapper, and made Contacts a sibling section. Markup move only.
+
+### 56. Failed resume uploads reported success (v3.2.1)
+
+* **Issue:** `uploadResumeToS3` used `fetch`, which does not throw on a 403/500 response, so a rejected S3 PUT still showed the success toast.
+
+* **Fix:** The response is now checked (`res.ok`) and an error is thrown, which the existing try/catch turns into the "Upload failed" toast.
+
+### 57. CSV import showed one toast per row (v3.2.1)
+
+* **Issue:** `handleImport` called `create()` for every row and each call fired "Application added", so a 50-row import produced 50 toasts on top of the summary toast.
+
+* **Fix:** Added `createQuiet` to `useApplications` (same API call and cache update, no toast); the import path uses it and keeps its single summary toast.
+
+### 58. CSV export allowed formula injection and import broke on multi-line notes (v3.2.1)
+
+* **Issue:** Exported cells starting with `=`, `+`, `-` or `@` are executed as formulas by Excel and Sheets. Separately, import split the file on `\n` before parsing, so a quoted note containing a line break was cut into several rows.
+
+* **Fix:** Export prefixes such cells with an apostrophe and import strips it again, so a round trip returns the original text. The parser now reads the whole file as records (quoted newlines, CRLF and a BOM handled). A pure `buildCsv` function was split out so a round-trip test could run without a DOM.
+
+### 59. compute_patterns listed three keys twice (v3.2.1)
+
+* **Issue:** `funnel`, `responseRateTimeSeries` and `statusHistory` appeared twice in the returned dict (left over from merging v2.1 and v3.1 additions). Python kept the later value, but each was computed twice.
+
+* **Fix:** Removed the duplicates. Output is unchanged.
+
+### 60. OpenAPI referenced an undefined security scheme (v3.2.1)
+
+* **Issue:** The v3.0 routes declared `security: - CognitoJWT: []`, but only `cognitoAuth` exists in `securitySchemes`, so Swagger UI showed the wrong auth for those routes.
+
+* **Fix:** Renamed to `cognitoAuth` in both spec copies.
+
+### 61. localhost blocked by CORS when running the frontend against the live backend (v3.2.1)
+
+* **Issue:** Earlier deferred as Issue 28. `http://localhost:5173` was missing from the Lambda `ALLOWED_ORIGINS`, API Gateway CORS, and the Cognito callback/logout URLs, so `npm run dev` against the deployed API failed.
+
+* **Fix:** Added the origin in all places (plus the Amplify OAuth config for Google sign-in on localhost). Every request still needs a valid JWT.
+
+### 62. Job description fetch could be pointed at internal addresses (SSRF) (v3.2.1)
+
+* **Issue:** `fetch_job_description` fetched any URL the user stored on an application and followed redirects without checking where they led, so a crafted URL (or a redirect) could make the Lambda request private, loopback or link-local addresses.
+
+* **Fix:** Each hop is now validated before it is requested: http/https only, ports 80/443, no credentials in the URL, and the host must resolve only to public addresses (the check judges the resolved address, so numeric forms like `2130706433` and names resolving to private ranges are caught). Redirects are followed manually (max 3) with the same check on every hop. Known limit: urllib resolves again at connect time, so DNS rebinding is not fully closed.
+
+### 63. Inputs were accepted without validation (v3.2.1)
+
+* **Issue:** A resume `versionName` containing `/` broke `list_resumes` parsing; `dateApplied` and `jobDescUrl` accepted any string; uploads accepted any content type; chat messages had no length limit (token cost).
+
+* **Fix:** Validators added at create/update time only (stored data is never rejected on read): real YYYY-MM-DD dates, http(s) URLs up to 2048 characters, S3-safe names, PDF-only uploads, chat messages up to 1000 characters.
+
+### 64. Interview-prep generation had no usage limit (v3.2.1)
+
+* **Issue:** Every call to generate (or regenerate) invokes Bedrock, with no per-user cap. The 429 that would have come back also showed only a generic toast.
+
+* **Fix:** Daily cap of 10 per user (`PREP_DAILY_LIMIT`), checked after the ownership test, using its own counter. It fails open but logs at ERROR level, because the chat limiter's silent fail-open hid an IAM bug for months. The hook now shows the API's message.
+
+### 65. Resume bucket allowed any origin (v3.2.1)
+
+* **Issue:** The resume bucket's CORS rule used `allowedOrigins: ['*']`.
+
+* **Fix:** Replaced with `addCorsRule` listing the CloudFront, GitHub Pages and custom-domain origins plus localhost. It has to be added after the CloudFront distribution is defined, since the domain is a token.
+
+### 66. API Gateway logged request bodies and tokens, and had no throttling (v3.2.1)
+
+* **Issue:** `dataTraceEnabled: true` makes the stage's execution log include request/response bodies and Authorization headers, so ID tokens and all notes and contacts landed in CloudWatch. No stage-level throttling was configured.
+
+* **Fix:** `dataTraceEnabled` set to false, and stage-wide throttling of 20 requests/second with a burst of 40 added (applies per method).
+
+### 67. Email addresses were written to CloudWatch logs (v3.2.1)
+
+* **Issue:** `cognito_verify` and `digest` logged full recipient emails.
+
+* **Fix:** A local `_mask_email` helper (defined in each handler, not in `shared.middleware`, because the test stubs do not provide it) logs `h***@domain` instead.
+
+### 68. Queries and scans silently stopped at 1 MB (v3.2.1)
+
+* **Issue:** A single DynamoDB `query`/`scan` returns at most 1 MB and sets `LastEvaluatedKey` for the rest. Most handlers read only the first page, so large accounts would lose applications from lists, analytics and digests, and the digest/follow-up scans would skip users. `list_resumes` had the same limit at 1000 objects.
+
+* **Fix:** New `shared/pagination.py` (`paginate_query`, `paginate_scan`) follows `LastEvaluatedKey` and is adopted across the handlers; `list_resumes` loops on the continuation token. It must not be used on calls that pass `Limit`. Because test files stub `shared.middleware` inline, the helper is registered in `tests/conftest.py`.
+
+### 69. Hardcoded test counts drifted across documents (v3.2.1)
+
+* **Issue:** README, CONTRIBUTING, the PR template and the knowledge file quoted 355, 410, 419 and 34 tests for the same suite at different times.
+
+* **Fix:** Counts removed from the live docs; they point at the commands instead. Historical CHANGELOG entries keep the numbers they had at the time.
+
+### 70. Extension shipped an unused permission and dead files (v3.2.1)
+
+* **Issue:** After the popup-triggered redesign the manifest still requested `webNavigation` (a leftover of the iframe theory in Issue 52), carried an empty `externally_connectable` block, and `linkedin.css`/`shared.css` were unused. `glassdoor.js` still said its selectors were unverified.
+
+* **Fix:** Removed the permission and block, deleted the CSS files, corrected the header, and bumped the extension to 1.0.1.
