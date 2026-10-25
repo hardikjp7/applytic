@@ -4,7 +4,7 @@ All notable changes to Applytic are documented here.
 
 ---
 
-## [3.2.1] - 2026-10-20
+## [3.2.1] - 2026-10-25
 
 Patch release: security hardening and small, certain bug fixes. No schema change and no analytics change. App v3.2.1 + Extension 1.0.1.
 
