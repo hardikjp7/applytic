@@ -4,6 +4,75 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.2.1] - 2026-10-25
+
+Patch release: security hardening and small, certain bug fixes. No schema change and no analytics change. App v3.2.1 + Extension 1.0.1.
+
+### Security
+
+- **SSRF guard on interview-prep job description fetch** - `fetch_job_description` fetched any user-supplied URL, including whatever it redirected to. It now allows only http/https on ports 80 and 443, requires the host to resolve *only* to public addresses (private, loopback, link-local, reserved, IPv4-mapped IPv6 and numeric forms such as `2130706433` or `0x7f.1` are all rejected), and checks every redirect hop itself (max 3). Blocked fetches fall back silently to role + company questions. Known limit: urllib resolves the host again at connect time, so DNS rebinding between the check and the connect is not fully closed
+- **API Gateway data tracing turned off** - `dataTraceEnabled` was on, which writes request/response bodies and Authorization headers (ID tokens, notes, contacts) to CloudWatch. Method logging at INFO, metrics and X-Ray are unchanged
+- **Resume bucket CORS** restricted to the app's own origins plus localhost (was `*`)
+- **PII in logs** - email addresses are masked in `cognito_verify` and `digest` logs
+- **CSV formula injection** - exported cells starting with `=`, `+`, `-`, `@` are neutralised with a leading apostrophe; import reverses it so a round trip returns the original text
+
+### Added
+
+- **Daily cap on interview-prep generation** - default 10 per user per day (`PREP_DAILY_LIMIT`), separate counter `RATELIMIT#{userId}` / `PREPGEN#{date}` with a 2-day TTL. Returns 429 with `rateLimited: true`. Checked after the ownership test so unknown applications cannot burn quota. Fails open if the counter write fails, but logs at ERROR level (the chat limiter failed open silently for months in v3.1.1)
+- **Shared pagination helper** - `shared/pagination.py` (`paginate_query`, `paginate_scan`) follows `LastEvaluatedKey`. Adopted in applications, insights, digest, followup, settings, notes and contacts, and as an S3 continuation loop in `list_resumes`. Previously every query/scan silently stopped at 1 MB
+- **Monthly cost budget** - AWS Budgets, USD 20, covers the whole AWS account, notifies at 80% actual and 100% forecast
+- **Input validation at create/update time** - `dateApplied` must be a real YYYY-MM-DD date; `jobDescUrl` must be http(s), max 2048 characters; resume `versionName` (max 64) and `filename` (max 128) cannot contain `/`, `\` or control characters; upload `contentType` must be `application/pdf`; AI Coach `message` max 1000 characters. Stored data is never re-validated on read
+- **Local development origin** - `http://localhost:5173` allowed in `ALLOWED_ORIGINS`, API Gateway CORS, Cognito callback/logout URLs and the Amplify OAuth config (resolves the long-deferred localhost CORS issue). Requests still require a valid JWT
+- New `tests/test_pagination.py`, `frontend/src/test/csv.test.ts`, and new cases for the SSRF guard, redirect handling, the generate limiter, input validation, chat length and email masking
+
+### Fixed
+
+- Application detail modal: the Contacts section rendered inside the notes wrapper, so the "Add a note..." input appeared below Contacts. Contacts is now a sibling section
+- Resume upload reported success on a failed S3 PUT, because `fetch` does not throw on 403/500. The response is now checked
+- CSV import showed one "Application added" toast per row; it now shows only its summary toast
+- CSV import split rows on `\n`, so a note containing a line break broke the row. The parser now reads quoted fields across lines and accepts CRLF and a BOM
+- `compute_patterns` listed `funnel`, `responseRateTimeSeries` and `statusHistory` twice, computing each twice. Duplicates removed
+- OpenAPI referenced an undefined `CognitoJWT` security scheme on the v3.0 routes; now `cognitoAuth`
+- Interview-prep generate showed a generic error toast even for a 429; it now shows the API message
+- A resume `versionName` containing `/` broke `list_resumes` parsing
+
+### Changed
+
+- A job URL typed without `http://` or `https://` is now rejected with a clear message (editing an old record that still holds one fails until the URL is fixed)
+- A blank `dateApplied` is treated as "not provided": new applications default to today, and clearing the field in the edit form leaves the stored date unchanged instead of writing an empty string
+- Hardcoded test counts removed from README, CONTRIBUTING and the PR template
+- `api/openapi.yml` and `api-docs/openapi.yml` bumped to 3.2.1 with the new constraints and the 429 response (both copies are kept; the docs UI is served from `api-docs/`)
+
+### Extension 1.0.1
+
+- Removed the unused `webNavigation` permission and the empty `externally_connectable` block from `manifest.json`
+- Deleted dead `content-scripts/linkedin.css` and `shared.css`; corrected the stale "not yet verified" header in `glassdoor.js`
+
+### Infrastructure
+
+- Resume bucket CORS moved to `addCorsRule` with explicit origins
+- API Gateway stage: `throttlingRateLimit` 20 and `throttlingBurstLimit` 40 (applied per method; starting values), `dataTraceEnabled` false
+- `applytic-interview-prep` environment: `PREP_DAILY_LIMIT=10`
+- New `MonthlyCostBudget` (AWS Budgets)
+- New layer version (adds `pagination.py`)
+- No new routes, tables or Lambdas
+
+### Known limitations
+
+- DNS rebinding between the SSRF check and the connect is not fully closed with urllib
+- API Gateway's own 4xx/429 responses carry no CORS headers, so a throttled call looks like a network error in the browser (limits are generous; a `Default4xx` gateway response is the fix)
+- `digest.get_active_users` is a filtered full-table scan; it is now complete but reads the whole table each Monday (a sparse GSI is planned for v4.0)
+- The budget is account-wide, not per stack; throttle values are starting points
+
+### Upgrade notes
+
+- `cdk deploy` is required. `build_layer.sh` does not need re-running (no pip dependency changed)
+- Reload the unpacked extension (or install the 1.0.1 zip); Chrome shows no prompt because only permissions were removed
+
+**Commit scope:** `lambdas/`, `lambdas/shared_layer/`, `cdk/`, `frontend/src/`, `extension/`, `api/`, `api-docs/`, `tests/`, `docs`
+
+---
+
 ## [3.2.0] - 2026-10-11
 
 ### Added

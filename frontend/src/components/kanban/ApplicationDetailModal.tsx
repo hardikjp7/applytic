@@ -91,7 +91,7 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
     }
   }
 
-    const handleAddContact = async () => {
+  const handleAddContact = async () => {
     if (!contactForm.name.trim()) return
     try {
       await addContact(contactForm)
@@ -364,6 +364,26 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                   )}
                 </div>
 
+                {/* Add note input */}
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                    placeholder="Add a note..."
+                    value={noteInput}
+                    onChange={e => setNoteInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAddNote()}
+                    disabled={submitting}
+                  />
+                  <button
+                    onClick={handleAddNote}
+                    disabled={submitting || !noteInput.trim()}
+                    className="px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-800 disabled:opacity-40 transition-colors"
+                  >
+                    <Send size={14} />
+                  </button>
+                </div>
+              </div>
+
               {/* v3.1: Contacts */}
               <div>
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
@@ -447,26 +467,6 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                     className="col-span-2 px-3 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-800 disabled:opacity-40 transition-colors"
                   >
                     Add contact
-                  </button>
-                </div>
-              </div>
-
-                {/* Add note input */}
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-gray-400 dark:placeholder:text-gray-500"
-                    placeholder="Add a note..."
-                    value={noteInput}
-                    onChange={e => setNoteInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAddNote()}
-                    disabled={submitting}
-                  />
-                  <button
-                    onClick={handleAddNote}
-                    disabled={submitting || !noteInput.trim()}
-                    className="px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-800 disabled:opacity-40 transition-colors"
-                  >
-                    <Send size={14} />
                   </button>
                 </div>
               </div>

@@ -6,7 +6,9 @@ Handles: GET/POST /applications, GET/PUT/DELETE /applications/{appId},
 v2.0 change: followUpDate field added to CreateApplicationRequest and UpdateApplicationRequest.
 """
 import os
+import re
 import uuid
+from datetime import datetime
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -17,6 +19,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional, Literal
 
 from shared.middleware import resp, get_user_id, parse_body, now_iso
+from shared.pagination import paginate_query
 
 dynamodb = boto3.resource("dynamodb")
 s3_client = boto3.client("s3")
@@ -27,6 +30,47 @@ table = dynamodb.Table(TABLE_NAME)
 
 logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 tracer = Tracer(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
+
+
+MAX_URL_LENGTH = 2048
+_BAD_KEY_CHARS = re.compile(r'[/\\\x00-\x1f\x7f]')
+
+
+def _validate_ymd(v: Optional[str], field: str) -> Optional[str]:
+    """Blank means 'not provided' (None); anything else must be a real YYYY-MM-DD date."""
+    if v is None:
+        return None
+    v = v.strip()
+    if v == "":
+        return None
+    try:
+        datetime.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"{field} must be a valid YYYY-MM-DD date")
+    return v
+
+
+def _validate_job_url(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    v = v.strip()
+    if v == "":
+        return ""
+    if len(v) > MAX_URL_LENGTH:
+        raise ValueError(f"jobDescUrl must be {MAX_URL_LENGTH} characters or less")
+    if not v.lower().startswith(("http://", "https://")):
+        raise ValueError("jobDescUrl must start with http:// or https://")
+    return v
+
+
+def _validate_s3_name(v: str, field: str, max_len: int) -> str:
+    """Used for resume versionName/filename, which become S3 key segments."""
+    v = v.strip()
+    if not v or len(v) > max_len:
+        raise ValueError(f"{field} must be 1-{max_len} characters")
+    if _BAD_KEY_CHARS.search(v) or v in (".", ".."):
+        raise ValueError(f"{field} must not contain slashes or control characters")
+    return v
 
 
 class CreateApplicationRequest(BaseModel):
@@ -63,6 +107,16 @@ class CreateApplicationRequest(BaseModel):
         except ValueError:
             raise ValueError("followUpDate must be YYYY-MM-DD format")
         return v
+
+    @field_validator("dateApplied")
+    @classmethod
+    def valid_date_applied(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_ymd(v, "dateApplied")
+
+    @field_validator("jobDescUrl")
+    @classmethod
+    def valid_job_desc_url(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_job_url(v)
 
     @field_validator("expectedSalary", "offeredSalary")
     @classmethod
@@ -105,6 +159,16 @@ class UpdateApplicationRequest(BaseModel):
             raise ValueError("followUpDate must be YYYY-MM-DD format")
         return v
 
+    @field_validator("dateApplied")
+    @classmethod
+    def valid_date_applied(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_ymd(v, "dateApplied")
+
+    @field_validator("jobDescUrl")
+    @classmethod
+    def valid_job_desc_url(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_job_url(v)
+
     @field_validator("expectedSalary", "offeredSalary")
     @classmethod
     def salary_in_range(cls, v: Optional[int]) -> Optional[int]:
@@ -131,20 +195,31 @@ class UploadUrlRequest(BaseModel):
 
     @field_validator("filename")
     @classmethod
-    def not_empty(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("must not be empty")
-        return v.strip()
+    def valid_filename(cls, v: str) -> str:
+        return _validate_s3_name(v, "filename", 128)
+
+    @field_validator("versionName")
+    @classmethod
+    def valid_version_name(cls, v: Optional[str]) -> str:
+        return "v1" if v is None else _validate_s3_name(v, "versionName", 64)
+
+    @field_validator("contentType")
+    @classmethod
+    def pdf_only(cls, v: Optional[str]) -> str:
+        if v is not None and v != "application/pdf":
+            raise ValueError("only application/pdf uploads are supported")
+        return v or "application/pdf"
 
 
 @tracer.capture_method
 def list_applications(user_id: str):
-    result = table.query(
+    items = paginate_query(
+        table,
         IndexName="GSI1",
         KeyConditionExpression=Key("GSI1PK").eq(f"USER#{user_id}"),
         ScanIndexForward=False,
     )
-    return result["Items"], result["Count"]
+    return items, len(items)
 
 
 @tracer.capture_method
@@ -297,16 +372,22 @@ def get_upload_url(user_id: str, body: dict, event: dict) -> dict:
 @tracer.capture_method
 def list_resumes(user_id: str, event: dict) -> dict:
     prefix = f"resumes/{user_id}/"
-    result = s3_client.list_objects_v2(Bucket=RESUME_BUCKET, Prefix=prefix)
+    kwargs = {"Bucket": RESUME_BUCKET, "Prefix": prefix}
     resumes = []
-    for obj in result.get("Contents", []):
-        key = obj["Key"]
-        parts = key.replace(prefix, "").split("/")
-        if len(parts) >= 2:
-            resumes.append({
-                "versionName": parts[0], "filename": parts[1],
-                "uploadedAt": obj["LastModified"].strftime("%Y-%m-%d"), "s3Key": key,
-            })
+    while True:
+        result = s3_client.list_objects_v2(**kwargs)
+        for obj in result.get("Contents", []):
+            key = obj["Key"]
+            parts = key.replace(prefix, "").split("/")
+            if len(parts) >= 2:
+                resumes.append({
+                    "versionName": parts[0], "filename": parts[1],
+                    "uploadedAt": obj["LastModified"].strftime("%Y-%m-%d"), "s3Key": key,
+                })
+        if result.get("IsTruncated") is True and result.get("NextContinuationToken"):
+            kwargs["ContinuationToken"] = result["NextContinuationToken"]
+        else:
+            break
     resumes.sort(key=lambda x: x["uploadedAt"], reverse=True)
     return resp(200, {"resumes": resumes}, event)
 

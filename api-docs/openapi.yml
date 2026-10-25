@@ -13,7 +13,7 @@ info:
     no runtime request/response validation is wired against it in v2.2.
     Pydantic models in each Lambda handler remain the source of truth for
     actual input validation.
-  version: "3.1.1"
+  version: "3.2.1"
   contact:
     name: Hardik
     url: https://github.com/hardikjp7/applytic
@@ -309,7 +309,7 @@ paths:
       operationId: generateInterviewPrep
       tags: [Interview Prep]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - $ref: '#/components/parameters/AppId'
       responses:
@@ -326,6 +326,20 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          description: >
+            Daily generation limit reached (10 per user per day by default,
+            resets at UTC midnight).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  rateLimited:
+                    type: boolean
+                    example: true
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -338,7 +352,7 @@ paths:
       operationId: getInterviewPrep
       tags: [Interview Prep]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - $ref: '#/components/parameters/AppId'
       responses:
@@ -369,7 +383,7 @@ paths:
       operationId: updateInterviewQuestion
       tags: [Interview Prep]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - $ref: '#/components/parameters/AppId'
         - name: questionId
@@ -416,7 +430,7 @@ paths:
       operationId: listAlerts
       tags: [Alerts]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       responses:
         '200':
           description: Active alerts (may be empty array)
@@ -444,7 +458,7 @@ paths:
       operationId: dismissAlert
       tags: [Alerts]
       security:
-        - CognitoJWT: []
+        - cognitoAuth: []
       parameters:
         - name: alertId
           in: path
@@ -901,7 +915,7 @@ components:
           type: string
           format: date
           nullable: true
-          description: Defaults to today (server date) if omitted.
+          description: Defaults to today (server date) if omitted or blank. Must be a real YYYY-MM-DD date, otherwise 400.
         resumeVersion:
           type: string
           default: default
@@ -909,7 +923,9 @@ components:
           $ref: "#/components/schemas/Source"
         jobDescUrl:
           type: string
+          maxLength: 2048
           default: ""
+          description: v3.2.1. Must start with http:// or https:// when provided; otherwise 400.
         companySize:
           $ref: "#/components/schemas/CompanySize"
         notes:
@@ -950,6 +966,8 @@ components:
           type: string
         jobDescUrl:
           type: string
+          maxLength: 2048
+          description: v3.2.1. Must start with http:// or https:// when provided; otherwise 400.
         resumeVersion:
           type: string
         source:
@@ -961,6 +979,7 @@ components:
         dateApplied:
           type: string
           format: date
+          description: v3.2.1. Must be a real YYYY-MM-DD date, otherwise 400. A blank value is ignored (the stored date is left unchanged).
         followUpDate:
           type: string
           format: date
@@ -1024,14 +1043,20 @@ components:
       properties:
         filename:
           type: string
+          maxLength: 128
           example: resume.pdf
+          description: v3.2.1. Must not contain "/" or "\\" or control characters.
         versionName:
           type: string
+          maxLength: 64
           default: v1
           example: v3-ml-focused
+          description: v3.2.1. Must not contain "/" or "\\" or control characters.
         contentType:
           type: string
+          enum: [application/pdf]
           default: application/pdf
+          description: v3.2.1. Only PDF uploads are supported.
 
     ResumeListItem:
       type: object
@@ -1052,7 +1077,8 @@ components:
       properties:
         message:
           type: string
-          description: Trimmed server-side; rejects empty messages with 400.
+          maxLength: 1000
+          description: Trimmed server-side; rejects empty messages and messages over 1000 characters with 400.
 
     InsightBreakdown:
       type: object

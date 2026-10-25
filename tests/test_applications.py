@@ -453,3 +453,64 @@ class TestGetUploadUrl:
     def test_returns_400_without_filename(self):
         event = make_event('POST', '/resumes/upload-url', body={'versionName': 'v1'})
         assert lambda_handler(event, None)['statusCode'] == 400
+
+
+class TestInputValidationV321:
+
+    def _create(self, **extra):
+        body = {'company': 'Stripe', 'role': 'Eng', 'status': 'applied', **extra}
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            return lambda_handler(make_event('POST', '/applications', body=body), None)
+
+    def test_impossible_date_applied_returns_400(self):
+        assert self._create(dateApplied='2024-02-30')['statusCode'] == 400
+
+    def test_malformed_date_applied_returns_400(self):
+        assert self._create(dateApplied='15/01/2024')['statusCode'] == 400
+
+    def test_blank_date_applied_falls_back_to_today(self):
+        result = self._create(dateApplied='')
+        assert result['statusCode'] == 201
+        assert json.loads(result['body'])['application']['dateApplied'] == '2024-01-01'
+
+    def test_job_url_without_scheme_returns_400(self):
+        assert self._create(jobDescUrl='linkedin.com/jobs/1')['statusCode'] == 400
+
+    def test_job_url_over_2048_chars_returns_400(self):
+        assert self._create(jobDescUrl='https://x.com/' + 'a' * 2100)['statusCode'] == 400
+
+    def test_valid_job_url_is_accepted(self):
+        assert self._create(jobDescUrl='https://stripe.com/jobs/123')['statusCode'] == 201
+
+    def test_update_with_invalid_job_url_returns_400(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'}, body={'jobDescUrl': 'not-a-url'})
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_update_with_invalid_date_returns_400(self):
+        event = make_event('PUT', '/applications/app-123',
+                           path_params={'appId': 'app-123'}, body={'dateApplied': '2024-13-01'})
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_upload_url_rejects_slash_in_version_name(self):
+        event = make_event('POST', '/resumes/upload-url',
+                           body={'filename': 'resume.pdf', 'versionName': 'v1/evil'})
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_upload_url_rejects_path_in_filename(self):
+        event = make_event('POST', '/resumes/upload-url',
+                           body={'filename': '../resume.pdf', 'versionName': 'v1'})
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_upload_url_rejects_non_pdf_content_type(self):
+        event = make_event('POST', '/resumes/upload-url',
+                           body={'filename': 'a.pdf', 'versionName': 'v1', 'contentType': 'text/html'})
+        assert lambda_handler(event, None)['statusCode'] == 400
+
+    def test_upload_url_accepts_spaces_and_parentheses(self):
+        event = make_event('POST', '/resumes/upload-url',
+                           body={'filename': 'My Resume (final).pdf', 'versionName': 'Senior Backend v2'})
+        with patch('applications_handler.s3_client') as ms3:
+            ms3.generate_presigned_url.return_value = 'https://s3.amazonaws.com/fake-url'
+            assert lambda_handler(event, None)['statusCode'] == 200

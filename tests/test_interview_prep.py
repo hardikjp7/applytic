@@ -14,6 +14,7 @@ import pytest
 import importlib.util
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
+from urllib.error import HTTPError
 
 # ── Stubs ─────────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,8 @@ _strip_html = _mod._strip_html
 _clean_prep = _mod._clean_prep
 lambda_handler = _mod.lambda_handler
 NUM_QUESTIONS = _mod.NUM_QUESTIONS
+check_generate_limit = _mod.check_generate_limit
+PREP_DAILY_LIMIT = _mod.PREP_DAILY_LIMIT
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -236,6 +239,14 @@ class TestStripHtml:
 
 # ── Tests: fetch_job_description ──────────────────────────────────────────────
 
+def _fake_response(html: str):
+    resp = MagicMock()
+    resp.__enter__ = lambda s: s
+    resp.__exit__ = MagicMock(return_value=False)
+    resp.read.return_value = html.encode()
+    return resp
+
+
 class TestFetchJobDescription:
 
     def test_returns_empty_for_empty_url(self):
@@ -245,32 +256,134 @@ class TestFetchJobDescription:
         assert fetch_job_description("ftp://example.com") == ""
 
     def test_returns_empty_on_network_error(self):
-        with patch("interview_prep_handler.urllib_request.urlopen", side_effect=Exception("network error")):
-            result = fetch_job_description("https://example.com/job")
-        assert result == ""
+        with patch("interview_prep_handler._assert_public_url"), \
+             patch("interview_prep_handler._opener") as opener:
+            opener.open.side_effect = Exception("network error")
+            assert fetch_job_description("https://example.com/job") == ""
 
     def test_truncates_to_jd_max_chars(self):
-        long_html = "<p>" + "x" * 10000 + "</p>"
-        mock_response = MagicMock()
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_response.read.return_value = long_html.encode()
-        with patch("interview_prep_handler.urllib_request.urlopen", return_value=mock_response):
-            with patch("interview_prep_handler.urllib_request.Request", return_value=MagicMock()):
-                result = fetch_job_description("https://example.com/job")
+        with patch("interview_prep_handler._assert_public_url"), \
+             patch("interview_prep_handler._opener") as opener:
+            opener.open.return_value = _fake_response("<p>" + "x" * 10000 + "</p>")
+            result = fetch_job_description("https://example.com/job")
         assert len(result) <= _mod.JD_MAX_CHARS
 
     def test_strips_html_from_fetched_content(self):
         html = "<html><body><h1>Software Engineer</h1><p>We are hiring.</p></body></html>"
-        mock_response = MagicMock()
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_response.read.return_value = html.encode()
-        with patch("interview_prep_handler.urllib_request.urlopen", return_value=mock_response):
-            with patch("interview_prep_handler.urllib_request.Request", return_value=MagicMock()):
-                result = fetch_job_description("https://example.com/job")
+        with patch("interview_prep_handler._assert_public_url"), \
+             patch("interview_prep_handler._opener") as opener:
+            opener.open.return_value = _fake_response(html)
+            result = fetch_job_description("https://example.com/job")
         assert "<h1>" not in result
         assert "Software Engineer" in result
+
+
+class TestAssertPublicUrl:
+
+    @pytest.mark.parametrize("url", [
+        "http://127.0.0.1/",
+        "http://localhost/",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/",
+        "http://10.0.0.5/",
+        "http://2130706433/",          # decimal form of 127.0.0.1
+        "ftp://8.8.8.8/",
+        "http://8.8.8.8:8080/",        # port not 80/443
+        "http://user:pw@8.8.8.8/",     # credentials in URL
+    ])
+    def test_blocks_unsafe_urls(self, url):
+        with pytest.raises(_mod.UnsafeUrlError):
+            _mod._assert_public_url(url)
+
+    def test_allows_public_ip_literal(self):
+        _mod._assert_public_url("https://8.8.8.8/job")  # does not raise
+
+    def test_blocks_hostname_that_resolves_to_private_address(self):
+        fake = [(2, 1, 6, "", ("10.0.0.7", 443))]
+        with patch("interview_prep_handler.socket.getaddrinfo", return_value=fake):
+            with pytest.raises(_mod.UnsafeUrlError):
+                _mod._assert_public_url("https://internal.example.com/job")
+
+    def test_blocks_when_any_resolved_address_is_private(self):
+        fake = [(2, 1, 6, "", ("8.8.8.8", 443)), (2, 1, 6, "", ("10.0.0.7", 443))]
+        with patch("interview_prep_handler.socket.getaddrinfo", return_value=fake):
+            with pytest.raises(_mod.UnsafeUrlError):
+                _mod._assert_public_url("https://mixed.example.com/job")
+
+    def test_blocks_unresolvable_host(self):
+        import socket as _socket
+        with patch("interview_prep_handler.socket.getaddrinfo", side_effect=_socket.gaierror):
+            with pytest.raises(_mod.UnsafeUrlError):
+                _mod._assert_public_url("https://nope.invalid/job")
+
+
+class TestFetchRedirects:
+
+    @staticmethod
+    def _redirect(location: str):
+        return HTTPError("https://example.com/a", 302, "Found", {"Location": location}, None)
+
+    def test_follows_redirect_and_checks_every_hop(self):
+        with patch("interview_prep_handler._assert_public_url") as guard, \
+             patch("interview_prep_handler._opener") as opener:
+            opener.open.side_effect = [self._redirect("/b"), _fake_response("hello world")]
+            result = fetch_job_description("https://example.com/a")
+        assert "hello world" in result
+        assert guard.call_count == 2
+        assert guard.call_args_list[1][0][0] == "https://example.com/b"
+
+    def test_redirect_to_unsafe_target_returns_empty_without_requesting_it(self):
+        def guard(url):
+            if "169.254" in url:
+                raise _mod.UnsafeUrlError("blocked")
+
+        with patch("interview_prep_handler._assert_public_url", side_effect=guard), \
+             patch("interview_prep_handler._opener") as opener:
+            opener.open.side_effect = [self._redirect("http://169.254.169.254/latest")]
+            assert fetch_job_description("https://example.com/a") == ""
+        assert opener.open.call_count == 1
+
+    def test_gives_up_after_max_redirects(self):
+        with patch("interview_prep_handler._assert_public_url"), \
+             patch("interview_prep_handler._opener") as opener:
+            opener.open.side_effect = lambda *a, **k: (_ for _ in ()).throw(self._redirect("/again"))
+            assert fetch_job_description("https://example.com/a") == ""
+        assert opener.open.call_count == _mod.MAX_REDIRECTS + 1
+
+
+class TestCheckGenerateLimit:
+
+    def test_first_call_is_allowed(self):
+        mock_table = MagicMock()
+        mock_table.update_item.return_value = {"Attributes": {"count": 1}}
+        with patch("interview_prep_handler.table", mock_table):
+            allowed, remaining = check_generate_limit(USER_ID)
+        assert allowed is True
+        assert remaining == PREP_DAILY_LIMIT - 1
+
+    def test_blocks_once_limit_exceeded(self):
+        mock_table = MagicMock()
+        mock_table.update_item.return_value = {"Attributes": {"count": PREP_DAILY_LIMIT + 1}}
+        with patch("interview_prep_handler.table", mock_table):
+            allowed, remaining = check_generate_limit(USER_ID)
+        assert allowed is False
+        assert remaining == 0
+
+    def test_uses_its_own_counter_key(self):
+        mock_table = MagicMock()
+        mock_table.update_item.return_value = {"Attributes": {"count": 1}}
+        with patch("interview_prep_handler.table", mock_table):
+            check_generate_limit(USER_ID)
+        key = mock_table.update_item.call_args[1]["Key"]
+        assert key["PK"] == f"RATELIMIT#{USER_ID}"
+        assert key["SK"].startswith("PREPGEN#")
+
+    def test_fails_open_on_dynamodb_error(self):
+        mock_table = MagicMock()
+        mock_table.update_item.side_effect = Exception("AccessDenied")
+        with patch("interview_prep_handler.table", mock_table):
+            allowed, _ = check_generate_limit(USER_ID)
+        assert allowed is True
 
 
 # ── Tests: generate_questions_with_bedrock ────────────────────────────────────
@@ -448,6 +561,7 @@ class TestInterviewPrepLambdaHandler:
     # POST /generate
     def test_generate_returns_201_on_success(self):
         with patch("interview_prep_handler.verify_application_owner", return_value=make_app_item()), \
+             patch("interview_prep_handler.check_generate_limit", return_value=(True, 9)), \
              patch("interview_prep_handler.fetch_job_description", return_value="some jd text"), \
              patch("interview_prep_handler.generate_questions_with_bedrock", return_value=[
                  {"id": f"q-{i}", "text": f"Q{i}?", "practiced": False, "answer": ""}
@@ -463,6 +577,22 @@ class TestInterviewPrepLambdaHandler:
         with patch("interview_prep_handler.verify_application_owner", return_value=None):
             result = lambda_handler(make_event("POST", f"/applications/{APP_ID}/interview-prep/generate"), None)
         assert result["statusCode"] == 404
+
+    def test_generate_returns_429_when_daily_limit_reached(self):
+        with patch("interview_prep_handler.verify_application_owner", return_value=make_app_item()), \
+             patch("interview_prep_handler.check_generate_limit", return_value=(False, 0)), \
+             patch("interview_prep_handler.generate_questions_with_bedrock") as gen:
+            result = lambda_handler(make_event("POST", f"/applications/{APP_ID}/interview-prep/generate"), None)
+        assert result["statusCode"] == 429
+        assert json.loads(result["body"])["rateLimited"] is True
+        gen.assert_not_called()
+
+    def test_generate_does_not_consume_quota_for_unknown_app(self):
+        with patch("interview_prep_handler.verify_application_owner", return_value=None), \
+             patch("interview_prep_handler.check_generate_limit") as limit:
+            result = lambda_handler(make_event("POST", f"/applications/{APP_ID}/interview-prep/generate"), None)
+        assert result["statusCode"] == 404
+        limit.assert_not_called()
 
     def test_generate_returns_401_when_no_auth(self):
         event = make_event("POST", f"/applications/{APP_ID}/interview-prep/generate")

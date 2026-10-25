@@ -1,9 +1,9 @@
 // Applytic - Glassdoor adapter (v3.2, popup-triggered flow)
 // Loaded after shared.js on job listing and job-search pages.
 //
-// NOT YET VERIFIED against a live Glassdoor session - same caveat as
-// indeed.js. If the popup shows "no job detected" on a real posting, open
-// DevTools and check which selectors actually resolve.
+// Selectors confirmed against live Glassdoor (.co.in). If the popup shows
+// "no job detected" on a real posting after a Glassdoor redesign, check
+// which selectors below still resolve.
 
 (function () {
   const TITLE_SELECTORS = ['h1[id^="jd-job-title"]', '[data-test="job-title"]'];

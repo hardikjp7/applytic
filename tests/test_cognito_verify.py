@@ -184,3 +184,13 @@ class TestCognitoVerifyHandler:
             result = lambda_handler(event, None)
         assert result['customField'] == 'should_be_preserved'
         assert result['triggerSource'] == 'PostConfirmation_ConfirmSignUp'
+
+
+class TestMaskEmail:
+
+    def test_masks_local_part(self):
+        assert _mod._mask_email("hardik@example.com") == "h***@example.com"
+
+    def test_handles_empty_and_malformed(self):
+        assert _mod._mask_email("") == "***"
+        assert _mod._mask_email("not-an-email") == "***"

@@ -15,24 +15,44 @@ const EXPORT_HEADERS = [
   'followUpDate',
 ]
 
+// v3.2.1: spreadsheet apps (Excel, Sheets) run a cell as a formula when it
+// starts with = + - @ (or tab/CR). Exported cells that start with one of
+// those get a leading apostrophe so they open as plain text; import strips
+// the apostrophe again so a round trip returns the original value.
+const FORMULA_TRIGGER = /^[=+\-@\t\r]/
+const GUARDED_CELL = /^'[=+\-@\t\r]/
+
+function guardFormula(value: string): string {
+  return FORMULA_TRIGGER.test(value) ? `'${value}` : value
+}
+
+function unguardFormula(value: string): string {
+  return GUARDED_CELL.test(value) ? value.slice(1) : value
+}
+
 function escapeCell(value: string | null | undefined): string {
-  const str = value ?? ''
+  const str = guardFormula(String(value ?? ''))
   // Wrap in quotes if contains comma, quote, or newline
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`
   }
   return str
 }
 
-export function exportToCsv(applications: Application[]): void {
+// Pure string builder, split out of exportToCsv so it can be unit tested
+// without a DOM (Blob / URL.createObjectURL).
+export function buildCsv(applications: Application[]): string {
   const rows = [
     EXPORT_HEADERS.join(','),
     ...applications.map(app =>
       EXPORT_HEADERS.map(h => escapeCell(app[h as keyof Application] as string)).join(',')
     ),
   ]
+  return rows.join('\n')
+}
 
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+export function exportToCsv(applications: Application[]): void {
+  const blob = new Blob([buildCsv(applications)], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -69,39 +89,59 @@ export interface ImportResult {
   errors: { row: number; reason: string }[]
 }
 
-function parseCSVLine(line: string): string[] {
-  const result: string[] = []
-  let current = ''
+// v3.2.1: parses the whole file as records instead of splitting on '\n'
+// first, so a quoted cell containing a line break (e.g. a multi-line note)
+// stays inside its row. Handles \n, \r\n and \r row endings, "" escapes and
+// a leading BOM. Cells are trimmed, same as before.
+function parseCsvRows(text: string): string[][] {
+  const src = text.replace(/^\uFEFF/, '')
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ''
   let inQuotes = false
 
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"'
-        i++ // skip escaped quote
+  const endCell = () => { row.push(cell.trim()); cell = '' }
+  const endRow = () => { endCell(); rows.push(row); row = [] }
+
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') {
+          cell += '"'
+          i++ // skip escaped quote
+        } else {
+          inQuotes = false
+        }
       } else {
-        inQuotes = !inQuotes
+        cell += ch
       }
-    } else if (ch === ',' && !inQuotes) {
-      result.push(current.trim())
-      current = ''
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      endCell()
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && src[i + 1] === '\n') i++
+      endRow()
     } else {
-      current += ch
+      cell += ch
     }
   }
-  result.push(current.trim())
-  return result
+  // Last record when the file has no trailing newline
+  if (cell !== '' || row.length > 0) endRow()
+
+  // Drop fully blank records (same as the old "filter empty lines")
+  return rows.filter(r => r.some(c => c !== ''))
 }
 
 export function parseImportCsv(text: string): ImportResult {
-  const lines = text.split('\n').map(l => l.trimEnd()).filter(l => l.length > 0)
+  const rows = parseCsvRows(text)
 
-  if (lines.length < 2) {
+  if (rows.length < 2) {
     return { valid: [], errors: [{ row: 0, reason: 'File is empty or has no data rows' }] }
   }
 
-  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim())
+  const headers = rows[0].map(h => h.toLowerCase().trim())
 
   // Validate required headers exist
   for (const req of REQUIRED_IMPORT_HEADERS) {
@@ -116,11 +156,11 @@ export function parseImportCsv(text: string): ImportResult {
   const valid: ImportRow[] = []
   const errors: { row: number; reason: string }[] = []
 
-  for (let i = 1; i < lines.length; i++) {
-    const rowNum = i + 1 // 1-based for user display
-    const cells = parseCSVLine(lines[i])
+  for (let i = 1; i < rows.length; i++) {
+    const rowNum = i + 1 // record number, header = 1 (not a physical line number)
+    const cells = rows[i]
     const row: Record<string, string> = {}
-    headers.forEach((h, idx) => { row[h] = cells[idx] ?? '' })
+    headers.forEach((h, idx) => { row[h] = unguardFormula(cells[idx] ?? '') })
 
     // Validate required fields
     if (!row.company?.trim()) {

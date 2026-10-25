@@ -136,6 +136,7 @@ export default function CoachChat({ messages, setMessages }: Props) {
           placeholder="Ask your coach anything..."
           value={input}
           onChange={e => setInput(e.target.value)}
+          maxLength={1000}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}
           disabled={loading}
         />

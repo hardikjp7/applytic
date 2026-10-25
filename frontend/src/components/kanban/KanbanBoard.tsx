@@ -65,7 +65,7 @@ function EmptyColumn({ status, filtered }: { status: AppStatus; filtered: boolea
 }
 
 export default function KanbanBoard() {
-  const { applications, loading, create, update, remove, changeStatus } = useApplications()
+  const { applications, loading, create, createQuiet, update, remove, changeStatus } = useApplications()
   const [showModal, setShowModal] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
@@ -152,7 +152,7 @@ export default function KanbanBoard() {
     let failed = 0
     for (const row of rows) {
       try {
-        await create({
+        await createQuiet({
           company: row.company,
           role: row.role,
           status: row.status as AppStatus,

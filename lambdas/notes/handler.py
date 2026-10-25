@@ -29,6 +29,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from shared.middleware import resp, get_user_id, parse_body, now_iso
+from shared.pagination import paginate_query
 
 dynamodb = boto3.resource("dynamodb")
 TABLE_NAME = os.environ["TABLE_NAME"]
@@ -67,7 +68,8 @@ def verify_application_owner(user_id: str, app_id: str) -> bool:
 @tracer.capture_method
 def list_notes(app_id: str) -> list[dict]:
     """List all notes for an application, sorted oldest first."""
-    result = table.query(
+    return paginate_query(
+        table,
         KeyConditionExpression=(
             Key("PK").eq(f"APP#{app_id}") &
             Key("SK").begins_with("NOTE#")
@@ -75,7 +77,6 @@ def list_notes(app_id: str) -> list[dict]:
         FilterExpression=Attr("entityType").eq("NOTE"),
         ScanIndexForward=True,  # oldest first
     )
-    return result.get("Items", [])
 
 
 @tracer.capture_method
@@ -106,14 +107,14 @@ def delete_note(app_id: str, note_id: str, user_id: str) -> bool:
     Returns True if deleted, False if not found.
     """
     # Query to find the note SK - noteId alone isn't enough since SK includes timestamp
-    result = table.query(
+    items = paginate_query(
+        table,
         KeyConditionExpression=(
             Key("PK").eq(f"APP#{app_id}") &
             Key("SK").begins_with("NOTE#")
         ),
         FilterExpression=Attr("noteId").eq(note_id) & Attr("entityType").eq("NOTE"),
     )
-    items = result.get("Items", [])
     if not items:
         return False
 
