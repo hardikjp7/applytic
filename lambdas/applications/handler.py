@@ -31,6 +31,17 @@ table = dynamodb.Table(TABLE_NAME)
 logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 tracer = Tracer(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "applytic"))
 
+# v3.3.0: stage ranks. rejected/withdrawn are terminal states, not stages.
+STAGE_RANK = {"applied": 0, "screened": 1, "interview": 2, "offer": 3}
+
+
+def _max_stage(existing, new_status):
+    """Highest staged status ever reached. A direct rejection stays 'applied'."""
+    candidates = [s for s in (existing, new_status) if s in STAGE_RANK]
+    if not candidates:
+        return "applied"
+    return max(candidates, key=STAGE_RANK.__getitem__)
+
 
 MAX_URL_LENGTH = 2048
 _BAD_KEY_CHARS = re.compile(r'[/\\\x00-\x1f\x7f]')
@@ -250,6 +261,10 @@ def create_application(user_id: str, body: dict, event: dict) -> dict:
         "entityType": "APPLICATION",
     }
 
+    item["maxStage"] = _max_stage(None, req.status)
+    if STAGE_RANK.get(req.status, 0) >= 1:
+        item["firstResponseAt"] = ts
+
     table.put_item(Item=item)
     _write_status_event(app_id, user_id, None, req.status, ts)
     logger.info("Created application", extra={"app_id": app_id})
@@ -315,7 +330,8 @@ def delete_application(user_id: str, app_id: str, event: dict) -> dict:
         Key={"PK": f"USER#{user_id}", "SK": f"APP#{app_id}"},
         ConditionExpression="attribute_exists(PK)",
     )
-    logger.info("Deleted application", extra={"app_id": app_id})
+    purged = _purge_app_children(app_id)
+    logger.info("Deleted application", extra={"app_id": app_id, "children_deleted": purged})
     return resp(200, {"message": "Deleted", "appId": app_id}, event)
 
 
@@ -334,11 +350,25 @@ def update_status(user_id: str, app_id: str, body: dict, event: dict) -> dict:
     old_status = item.get("status")
     ts = now_iso()
 
+    # Legacy items (pre-v3.3.0) have no maxStage: fall back to the old status so
+    # deploy-before-backfill is safe. The backfill script stays authoritative.
+    prior_max = item.get("maxStage") or (old_status if old_status in STAGE_RANK else "applied")
+    new_max = _max_stage(prior_max, req.status)
+
+    expr = "SET #status = :status, updatedAt = :ts, maxStage = :ms"
+    values = {":status": req.status, ":ts": ts, ":ms": new_max}
+    # First response = first move into screened or beyond, only if not already recorded
+    if (not item.get("firstResponseAt")
+            and STAGE_RANK.get(req.status, 0) >= 1
+            and STAGE_RANK[prior_max] < 1):
+        expr += ", firstResponseAt = :fr"
+        values[":fr"] = ts
+
     table.update_item(
         Key={"PK": f"USER#{user_id}", "SK": f"APP#{app_id}"},
-        UpdateExpression="SET #status = :status, updatedAt = :ts",
+        UpdateExpression=expr,
         ExpressionAttributeNames={"#status": "status"},
-        ExpressionAttributeValues={":status": req.status, ":ts": ts},
+        ExpressionAttributeValues=values,
     )
     _write_status_event(app_id, user_id, old_status, req.status, ts, req.notes or "")
     return resp(200, {"message": "Status updated", "from": old_status, "to": req.status}, event)
@@ -351,6 +381,51 @@ def _write_status_event(app_id, user_id, from_status, to_status, ts, notes=""):
         "userId": user_id, "fromStatus": from_status, "toStatus": to_status,
         "notes": notes, "createdAt": ts, "entityType": "STATUS_EVENT",
     })
+
+
+@tracer.capture_method
+def list_status_events(user_id: str, app_id: str, event: dict) -> dict:
+    owner = table.get_item(
+        Key={"PK": f"USER#{user_id}", "SK": f"APP#{app_id}"},
+        ProjectionExpression="appId",
+    )
+    if "Item" not in owner:
+        return resp(404, {"error": "Application not found"}, event)
+
+    items = paginate_query(
+        table,
+        KeyConditionExpression=Key("PK").eq(f"APP#{app_id}") & Key("SK").begins_with("EVENT#"),
+        ScanIndexForward=True,
+    )
+    events = [
+        {
+            "fromStatus": i.get("fromStatus"),
+            "toStatus": i.get("toStatus"),
+            "notes": i.get("notes", ""),
+            "createdAt": i.get("createdAt"),
+        }
+        for i in items if i.get("entityType") == "STATUS_EVENT"
+    ]
+    return resp(200, {"events": events, "count": len(events)}, event)
+
+
+def _purge_app_children(app_id: str):
+    """Best effort: delete every item in the APP#{appId} partition (events, notes,
+    contacts, prep). Returns the count, or None on failure - any orphans left are
+    found by scripts/cleanup_orphans.py."""
+    try:
+        items = paginate_query(
+            table,
+            KeyConditionExpression=Key("PK").eq(f"APP#{app_id}"),
+            ProjectionExpression="PK, SK",
+        )
+        with table.batch_writer() as batch:
+            for it in items:
+                batch.delete_item(Key={"PK": it["PK"], "SK": it["SK"]})
+        return len(items)
+    except Exception:
+        logger.exception("Cascade delete failed - orphans left for cleanup", extra={"app_id": app_id})
+        return None
 
 
 @tracer.capture_method
@@ -417,6 +492,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             return list_resumes(user_id, event)
         if method == "POST" and app_id and path.endswith("/status"):
             return update_status(user_id, app_id, body, event)
+        if method == "GET" and app_id and path.endswith("/events"):
+            return list_status_events(user_id, app_id, event)
         if path.endswith("/applications"):
             if method == "GET":
                 items, count = list_applications(user_id)
