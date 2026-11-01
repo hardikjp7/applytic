@@ -13,13 +13,13 @@
     "diff": "cdk diff"
   },
   "devDependencies": {
-    "@types/node": "22.x",
+    "@types/node": "26.x",
     "aws-cdk": "2.x",
-    "typescript": "~5.7.0"
+    "typescript": "~7.0.2"
   },
   "dependencies": {
     "aws-cdk-lib": "2.x",
-    "constructs": "^10.0.0",
+    "constructs": "^10.8.1",
     "source-map-support": "^0.5.21"
   }
 }
