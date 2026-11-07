@@ -93,10 +93,22 @@ def get_week_events(user_id: str) -> list:
 
 # ── v3.0: rejection pattern detection ─────────────────────────────────────────
 
+STAGE_RANK = {"applied": 0, "screened": 1, "interview": 2, "offer": 3}
+
+
+def _has_responded(app: dict) -> bool:
+    """v3.3.0: ever reached screened or beyond (maxStage), falling back to the
+    current status for items that predate maxStage."""
+    stage = app.get("maxStage")
+    if stage not in STAGE_RANK:
+        stage = app.get("status")
+    return STAGE_RANK.get(stage, 0) >= 1
+
+
 def _response_rate(apps: list) -> float:
     if not apps:
         return 0.0
-    responded = sum(1 for a in apps if a.get("status") in RESPONDED_STATUSES)
+    responded = sum(1 for a in apps if _has_responded(a))
     return round(responded / len(apps) * 100, 1)
 
 
