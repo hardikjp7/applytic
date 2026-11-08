@@ -280,3 +280,173 @@ class TestPatternsAndContext:
         context = build_context_for_llm(apps, compute_patterns(apps))
         assert "Median days from applying" not in context
         assert "Direct rejections" not in context
+
+
+import json
+from unittest.mock import patch
+
+sanitize_history = _mod.sanitize_history
+_build_chat_turns = _mod._build_chat_turns
+chat_with_coach = _mod.chat_with_coach
+lambda_handler = _mod.lambda_handler
+
+
+def _turn(role, text="x"):
+    return {"role": role, "content": text}
+
+
+class TestSanitizeHistory:
+
+    def test_none_and_non_list_give_empty(self):
+        assert sanitize_history(None) == []
+        assert sanitize_history("hello") == []
+        assert sanitize_history({"role": "user"}) == []
+
+    def test_drops_invalid_turns(self):
+        history = [
+            "not a dict",
+            {"role": "system", "content": "x"},
+            {"role": "user", "content": 123},
+            {"role": "user", "content": "   "},
+            _turn("user", "real question"),
+            _turn("assistant", "real answer"),
+        ]
+        assert sanitize_history(history) == [_turn("user", "real question"), _turn("assistant", "real answer")]
+
+    def test_truncates_each_turn(self):
+        result = sanitize_history([_turn("user", "a" * 5000), _turn("assistant", "b" * 5000)])
+        assert all(len(t["content"]) == _mod.HISTORY_MAX_CHARS_PER_TURN for t in result)
+
+    def test_keeps_only_last_six_turns(self):
+        history = [_turn("user" if i % 2 == 0 else "assistant", f"m{i}") for i in range(10)]
+        result = sanitize_history(history)
+        assert len(result) == 6
+        assert result[0]["content"] == "m4"
+        assert result[-1]["content"] == "m9"
+
+    def test_drops_leading_assistant_greeting(self):
+        result = sanitize_history([_turn("assistant", "Hi!"), _turn("user", "q"), _turn("assistant", "a")])
+        assert [t["role"] for t in result] == ["user", "assistant"]
+
+    def test_drops_trailing_user_turn(self):
+        # the client may include the new message; the server appends it itself
+        result = sanitize_history([_turn("user", "q1"), _turn("assistant", "a1"), _turn("user", "new")])
+        assert result == [_turn("user", "q1"), _turn("assistant", "a1")]
+
+    def test_collapses_consecutive_same_role_keeping_latest(self):
+        result = sanitize_history([_turn("user", "old"), _turn("user", "newer"), _turn("assistant", "a")])
+        assert result == [_turn("user", "newer"), _turn("assistant", "a")]
+
+    def test_only_assistant_turns_give_empty(self):
+        assert sanitize_history([_turn("assistant", "a"), _turn("assistant", "b")]) == []
+
+    def test_result_always_alternates(self):
+        history = [_turn("assistant"), _turn("user"), _turn("user"), _turn("assistant"),
+                   _turn("assistant"), _turn("user"), _turn("assistant"), _turn("user")]
+        result = sanitize_history(history)
+        for a, b in zip(result, result[1:]):
+            assert a["role"] != b["role"]
+        assert result[0]["role"] == "user" and result[-1]["role"] == "assistant"
+
+
+class TestBuildChatTurns:
+
+    def test_no_history_is_single_turn_with_context(self):
+        turns = _build_chat_turns("why ghosted?", "CTX", [])
+        assert len(turns) == 1
+        assert "CTX" in turns[0]["content"] and "why ghosted?" in turns[0]["content"]
+
+    def test_context_only_in_first_turn(self):
+        history = [_turn("user", "first q"), _turn("assistant", "first a")]
+        turns = _build_chat_turns("follow up", "CTX", history)
+        assert [t["role"] for t in turns] == ["user", "assistant", "user"]
+        assert "CTX" in turns[0]["content"] and "first q" in turns[0]["content"]
+        assert turns[-1]["content"] == "follow up"
+        assert "CTX" not in turns[-1]["content"]
+
+
+def _mock_bedrock(anthropic=False):
+    mb = MagicMock()
+    body = MagicMock()
+    if anthropic:
+        body.read.return_value = json.dumps({"content": [{"text": "reply"}]}).encode()
+    else:
+        body.read.return_value = json.dumps({"output": {"message": {"content": [{"text": "reply"}]}}}).encode()
+    mb.invoke_model.return_value = {"body": body}
+    return mb
+
+
+class TestChatWithCoachPayloads:
+
+    def test_nova_without_history_matches_legacy_shape(self):
+        mb = _mock_bedrock()
+        with patch("insights_handler_v33.bedrock", mb), patch("insights_handler_v33.MODEL_ID", "amazon.nova-lite-v1:0"):
+            assert chat_with_coach("q", "CTX") == "reply"
+        body = json.loads(mb.invoke_model.call_args[1]["body"])
+        assert len(body["messages"]) == 1
+        assert "inferenceConfig" in body and "anthropic_version" not in body
+        text = body["messages"][0]["content"][0]["text"]
+        assert "pragmatic, data-driven" in text and "CTX" in text and "My question: q" in text
+
+    def test_nova_with_history_alternates_and_ends_with_user(self):
+        mb = _mock_bedrock()
+        history = [_turn("user", "q1"), _turn("assistant", "a1")]
+        with patch("insights_handler_v33.bedrock", mb), patch("insights_handler_v33.MODEL_ID", "amazon.nova-lite-v1:0"):
+            chat_with_coach("q2", "CTX", history)
+        messages = json.loads(mb.invoke_model.call_args[1]["body"])["messages"]
+        assert [m["role"] for m in messages] == ["user", "assistant", "user"]
+        assert "CTX" in messages[0]["content"][0]["text"]
+        assert messages[2]["content"][0]["text"] == "q2"
+
+    def test_anthropic_uses_system_field_and_string_content(self):
+        mb = _mock_bedrock(anthropic=True)
+        history = [_turn("user", "q1"), _turn("assistant", "a1")]
+        with patch("insights_handler_v33.bedrock", mb), patch("insights_handler_v33.MODEL_ID", "anthropic.claude-3-5-sonnet"):
+            assert chat_with_coach("q2", "CTX", history) == "reply"
+        body = json.loads(mb.invoke_model.call_args[1]["body"])
+        assert "pragmatic, data-driven" in body["system"]
+        assert [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
+        assert isinstance(body["messages"][0]["content"], str)
+        assert "CTX" in body["messages"][0]["content"]
+
+
+def _chat_event(body):
+    return {
+        "httpMethod": "POST", "path": "/insights/chat", "pathParameters": {},
+        "body": json.dumps(body),
+        "requestContext": {"authorizer": {"claims": {"sub": "u", "email": "t@example.com"}}},
+    }
+
+
+class TestChatHandlerHistoryWiring:
+
+    def _run(self, body, rate=(True, 19)):
+        apps = [make_app(f"app-{i}", "applied") for i in range(5)]
+        with patch("insights_handler_v33.fetch_all_applications", return_value=apps), \
+             patch("insights_handler_v33.check_rate_limit", return_value=rate), \
+             patch("insights_handler_v33.build_coach_enrichment", return_value={"interviewNotes": {}, "interviewPrep": {}, "alerts": []}), \
+             patch("insights_handler_v33.chat_with_coach", return_value="reply") as mock_chat:
+            result = lambda_handler(_chat_event(body), None)
+        return result, mock_chat
+
+    def test_sanitised_history_reaches_coach(self):
+        body = {"message": "follow up", "history": [
+            _turn("assistant", "Hi!"), _turn("user", "q1"), _turn("assistant", "a1"), _turn("user", "dangling")]}
+        result, mock_chat = self._run(body)
+        assert result["statusCode"] == 200
+        assert mock_chat.call_args[0][2] == [_turn("user", "q1"), _turn("assistant", "a1")]
+
+    def test_missing_history_gives_empty_list(self):
+        result, mock_chat = self._run({"message": "hello"})
+        assert result["statusCode"] == 200
+        assert mock_chat.call_args[0][2] == []
+
+    def test_non_list_history_returns_400(self):
+        result, mock_chat = self._run({"message": "hello", "history": "nope"})
+        assert result["statusCode"] == 400
+        mock_chat.assert_not_called()
+
+    def test_rate_limit_still_applies_with_history(self):
+        result, mock_chat = self._run({"message": "hello", "history": [_turn("user", "q"), _turn("assistant", "a")]}, rate=(False, 0))
+        assert result["statusCode"] == 429
+        mock_chat.assert_not_called()

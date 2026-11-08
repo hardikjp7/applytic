@@ -48,9 +48,16 @@ NOTES_PER_APP_LIMIT = 5
 MAX_INTERVIEW_APPS_FOR_CONTEXT = 20  # safety cap, matches recent-apps cap below
 MAX_CHAT_MESSAGE_LENGTH = 1000  # v3.2.1
 
+# v3.3.0: AI Coach multi-turn limits. History is client-supplied, so it is
+# treated as untrusted input and sanitised server-side.
+HISTORY_MAX_TURNS = 6
+HISTORY_MAX_CHARS_PER_TURN = 1000
+HISTORY_RAW_SCAN_LIMIT = 50  # never walk an arbitrarily long client list
+
 
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[list] = None  # v3.3.0: prior turns [{role, content}], sanitised in sanitize_history()
 
     @field_validator("message")
     @classmethod
@@ -787,27 +794,83 @@ def build_context_for_llm(apps: list, patterns: dict, enrichment: dict = None) -
     return "\n".join(lines)
 
 
+def sanitize_history(history) -> list:
+    """Returns a clean, alternating user/assistant list that starts with a user
+    turn and ends with an assistant turn (the new message is appended after it).
+    Bedrock (Nova and Anthropic) rejects non-alternating or assistant-first
+    conversations, so this fixes the shape instead of trusting the client."""
+    if not isinstance(history, list):
+        return []
+
+    cleaned = []
+    for turn in history[-HISTORY_RAW_SCAN_LIMIT:]:
+        if not isinstance(turn, dict):
+            continue
+        role = turn.get("role")
+        content = turn.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, str):
+            continue
+        content = content.strip()[:HISTORY_MAX_CHARS_PER_TURN]
+        if content:
+            cleaned.append({"role": role, "content": content})
+
+    cleaned = cleaned[-HISTORY_MAX_TURNS:]
+
+    # Collapse consecutive same-role turns, keeping the latest
+    alternating = []
+    for turn in cleaned:
+        if alternating and alternating[-1]["role"] == turn["role"]:
+            alternating[-1] = turn
+        else:
+            alternating.append(turn)
+
+    # Must start with user (drops the static assistant greeting) ...
+    while alternating and alternating[0]["role"] != "user":
+        alternating.pop(0)
+    # ... and end with assistant (the new user message follows it)
+    while alternating and alternating[-1]["role"] != "assistant":
+        alternating.pop()
+    return alternating
+
+
+def _build_chat_turns(user_message: str, context: str, history: list) -> list:
+    """History + the new message, with the data context in the FIRST turn so it
+    works for both the Nova and Anthropic payload shapes. With no history this
+    is a single turn identical to the pre-v3.3.0 prompt."""
+    turns = list(history or []) + [{"role": "user", "content": user_message}]
+    turns[0] = {
+        "role": "user",
+        "content": f"Here is my job search data:\n\n{context}\n\nMy question: {turns[0]['content']}",
+    }
+    return turns
+
+
 @tracer.capture_method
-def chat_with_coach(user_message: str, context: str) -> str:
+def chat_with_coach(user_message: str, context: str, history: list = None) -> str:
     system_prompt = """You are a pragmatic, data-driven job search coach.
 Give specific, actionable advice based on what the data actually shows.
 Be direct and honest. Reference specific numbers and patterns.
 If interview context or active alerts are present, use them to give more
 specific, personalised advice rather than generic tips.
+Earlier turns of this conversation may be included - use them to answer
+follow-up questions without asking the user to repeat themselves.
 Keep responses under 250 words unless asked for more detail."""
 
-    user_prompt = f"Here is my job search data:\n\n{context}\n\nMy question: {user_message}"
+    turns = _build_chat_turns(user_message, context, history or [])
 
     if "anthropic" in MODEL_ID:
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}],
+            "messages": [{"role": t["role"], "content": t["content"]} for t in turns],
         }
     else:
+        # Nova: system prompt stays folded into the first user turn, as before
+        nova_turns = [dict(t) for t in turns]
+        nova_turns[0]["content"] = system_prompt + "\n\n" + nova_turns[0]["content"]
         body = {
-            "messages": [{"role": "user", "content": [{"text": system_prompt + "\n\n" + user_prompt}]}],
+            "messages": [{"role": t["role"], "content": [{"text": t["content"]}]} for t in nova_turns],
             "inferenceConfig": {"maxTokens": 1024},
         }
 
@@ -863,11 +926,13 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             # v3.0: enrich context with interview notes, prep questions, and active alerts
             enrichment = build_coach_enrichment(user_id, apps)
             context_str = build_context_for_llm(apps, patterns, enrichment)
-            reply = chat_with_coach(req.message, context_str)
+            history = sanitize_history(req.history)
+            reply = chat_with_coach(req.message, context_str, history)
             logger.info("Chat response sent", extra={
                 "remaining_chats": remaining,
                 "interview_apps_enriched": len(enrichment["interviewNotes"]) + len(enrichment["interviewPrep"]),
                 "active_alerts": len(enrichment["alerts"]),
+                "history_turns": len(history),
             })
             return resp(200, {"reply": reply, "patterns": patterns, "remainingChats": remaining}, event)
 
