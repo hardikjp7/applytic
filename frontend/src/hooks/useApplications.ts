@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getApplications, createApplication, updateApplication, deleteApplication, updateStatus } from '../lib/api'
 import type { Application, AppStatus } from '../types'
 import toast from 'react-hot-toast'
+import { statusEventsKey } from './useStatusEvents'
 
 export const APPLICATIONS_KEY = ['applications'] as const
 
@@ -65,6 +66,10 @@ export function useApplications() {
         prev?.map(a => a.appId === appId ? { ...a, status } : a) ?? []
       )
       return { previous }
+    },
+    // v3.3.0: a status change adds an event, so the timeline must refetch
+    onSuccess: (_data, { appId }) => {
+      qc.invalidateQueries({ queryKey: statusEventsKey(appId) })
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {

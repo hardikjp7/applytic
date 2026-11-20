@@ -21,6 +21,9 @@ const SUGGESTIONS = [
   'What should I focus on this week?',
 ]
 
+// v3.3.0: how many earlier turns are sent for follow-up questions (server caps at the same number)
+const HISTORY_TURNS = 6
+
 export default function CoachChat({ messages, setMessages }: Props) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -32,11 +35,14 @@ export default function CoachChat({ messages, setMessages }: Props) {
 
   const send = async (message: string) => {
     if (!message.trim() || loading) return
+    // v3.3.0: turns before this message. The server sanitises them, so the greeting
+    // and any error replies are tolerated and dropped or collapsed there.
+    const history = messages.slice(-HISTORY_TURNS).map(({ role, content }) => ({ role, content }))
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: message }])
     setLoading(true)
     try {
-      const res = await chatWithCoach(message)
+      const res = await chatWithCoach(message, history)
       setMessages(prev => [...prev, { role: 'assistant', content: res.reply }])
     } catch (err: any) {
       const msg = err?.response?.status === 429

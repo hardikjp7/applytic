@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { getInsights } from '../../lib/api'
 import type { Patterns } from '../../types'
-import { TrendingUp, Target, Zap } from 'lucide-react'
+import { TrendingUp, Target, Zap, Clock, XCircle } from 'lucide-react'
 
 const COLORS = ['#7f77dd', '#1d9e75', '#ef9f27', '#e24b4a', '#378add', '#d85a30']
 
@@ -20,6 +20,9 @@ const STATUS_HISTORY_COLORS: Record<string, string> = {
 }
 
 const card = 'bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl'
+
+// v3.3.0: below this many responses a median is noise, so show a placeholder
+const MIN_TIMING_SAMPLE = 3
 
 // ── Custom funnel bar label showing conversion % ───────────────────────────
 
@@ -117,6 +120,11 @@ export default function AnalyticsDashboard() {
   const tickStyle = { fontSize: 11, fill: 'currentColor' }
   const tooltipStyle = { fontSize: 12, backgroundColor: 'var(--tooltip-bg, #fff)', border: '1px solid #e5e7eb', borderRadius: 8 }
 
+  // v3.3.0: response timing + direct rejections
+  const timing = patterns.responseTiming
+  const timingReady = !!timing && timing.medianDaysToFirstResponse != null && timing.sampleSize >= MIN_TIMING_SAMPLE
+  const direct = patterns.directRejections
+
   return (
     <div className="p-4 lg:p-6 space-y-6">
       <div>
@@ -138,6 +146,32 @@ export default function AnalyticsDashboard() {
             <p className="text-xs text-gray-400 mt-0.5">{label}</p>
           </div>
         ))}
+      </div>
+
+      {/* v3.3.0: response timing + direct rejections */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className={`${card} p-4`}>
+          <div className="text-brand-600 dark:text-brand-400 mb-2"><Clock size={16} /></div>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+            {timingReady
+              ? `${timing!.medianDaysToFirstResponse} ${timing!.medianDaysToFirstResponse === 1 ? 'day' : 'days'}`
+              : '-'}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">Median time to first response</p>
+          <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">
+            {timingReady ? `Across ${timing!.sampleSize} applications` : 'Not enough data yet'}
+          </p>
+        </div>
+        {direct && (
+          <div className={`${card} p-4`}>
+            <div className="text-red-500 dark:text-red-400 mb-2"><XCircle size={16} /></div>
+            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{direct.rate}%</p>
+            <p className="text-xs text-gray-400 mt-0.5">Direct rejections</p>
+            <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">
+              {direct.count} rejected without a screen
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Highlights */}
@@ -212,7 +246,7 @@ export default function AnalyticsDashboard() {
         {funnelData.length > 0 && (
           <div className={`${card} p-5`}>
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Application funnel</p>
-            <p className="text-xs text-gray-400 mb-4">Conversion at each stage from total applied</p>
+            <p className="text-xs text-gray-400 mb-4">Highest stage each application ever reached</p>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={funnelData} barSize={40}>
                 <XAxis dataKey="stage" tick={tickStyle} />

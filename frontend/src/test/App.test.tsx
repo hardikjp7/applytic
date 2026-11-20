@@ -40,6 +40,7 @@ vi.mock('../lib/api', () => ({
   getContacts: vi.fn().mockResolvedValue([]),
   createContact: vi.fn(),
   deleteContact: vi.fn(),
+  getStatusEvents: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('../lib/amplify', () => ({
@@ -267,6 +268,17 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />)
     await waitFor(() => {
       expect(screen.getByRole('link', { name: /go to board/i })).toBeInTheDocument()
+    })
+  })
+
+  it('counts an application rejected after an interview as responded', async () => {
+    vi.mocked(api.getApplications).mockResolvedValue([
+      makeApp({ appId: '1', status: 'rejected', maxStage: 'interview' }),
+      makeApp({ appId: '2', status: 'applied' }),
+    ])
+    renderWithProviders(<Dashboard />)
+    await waitFor(() => {
+      expect(screen.getByText('50%')).toBeInTheDocument()
     })
   })
 })

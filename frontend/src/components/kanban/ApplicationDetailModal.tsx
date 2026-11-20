@@ -8,6 +8,7 @@ import { useNotes } from '../../hooks/useNotes'
 import { useInterviewPrep } from '../../hooks/useInterviewPrep'
 import ResumeVersionSelect from './ResumeVersionSelect'
 import { useContacts } from '../../hooks/useContacts'
+import { useStatusEvents } from '../../hooks/useStatusEvents'
 
 interface Props {
   app: Application
@@ -53,6 +54,8 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
 
   // v3.1: contacts sub-resource
   const { contacts, loading: contactsLoading, submitting: contactSubmitting, addContact, removeContact } = useContacts(app.appId)
+  // v3.3.0: real status history, replaces the synthetic two-row timeline
+  const { events, loading: eventsLoading, isError: eventsError } = useStatusEvents(app.appId)
   const [contactForm, setContactForm] = useState({ name: '', email: '', linkedinUrl: '', role: '' })
 
   // v3.0: interview prep hook - only meaningfully used when the tab is eligible,
@@ -477,8 +480,28 @@ export default function ApplicationDetailModal({ app, onClose, onSave, onDelete,
                   <Clock size={11} /> Status timeline
                 </p>
                 <div className="space-y-2">
-                  <TimelineEvent label="Added to tracker" date={app.createdAt} color="bg-gray-200 dark:bg-gray-700" />
-                  {app.status !== 'applied' && <TimelineEvent label={`Moved to ${STATUS_LABELS[app.status]}`} date={app.updatedAt} color={getDot(app.status)} />}
+                  {eventsLoading ? (
+                    <>
+                      <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
+                      <div className="h-4 w-2/3 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
+                    </>
+                  ) : events.length > 0 && !eventsError ? (
+                    events.map((ev, i) => (
+                      <TimelineEvent
+                        key={`${ev.createdAt}-${i}`}
+                        label={!ev.fromStatus
+                          ? `Added as ${STATUS_LABELS[ev.toStatus]}`
+                          : `Moved to ${STATUS_LABELS[ev.toStatus]}`}
+                        date={ev.createdAt}
+                        color={getDot(ev.toStatus)}
+                      />
+                    ))
+                  ) : (
+                    <>
+                      <TimelineEvent label="Added to tracker" date={app.createdAt} color="bg-gray-200 dark:bg-gray-700" />
+                      {app.status !== 'applied' && <TimelineEvent label={`Moved to ${STATUS_LABELS[app.status]}`} date={app.updatedAt} color={getDot(app.status)} />}
+                    </>
+                  )}
                 </div>
                 <p className="text-xs text-gray-300 dark:text-gray-600 mt-2">
                   Last updated {formatDistanceToNow(new Date(app.updatedAt), { addSuffix: true })}

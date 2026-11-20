@@ -23,6 +23,8 @@ export interface Application {
   offeredSalary: number | null  // v3.1
   salaryNotes: string  // v3.1
   salaryCurrency: 'USD' | 'EUR' | 'GBP' | 'INR' | 'CAD' | 'AUD'  // v3.1.1
+  maxStage?: 'applied' | 'screened' | 'interview' | 'offer'  // v3.3.0: highest staged status ever reached
+  firstResponseAt?: string | null  // v3.3.0: ISO timestamp of the first move to screened or beyond
   createdAt: string
   updatedAt: string
 }
@@ -82,6 +84,24 @@ export interface SalaryDistributionPoint {
   count: number
 }
 
+// v3.3.0: response timing + direct rejections
+export interface ResponseTimingBucket {
+  medianDays: number | null
+  count: number
+}
+
+export interface ResponseTiming {
+  medianDaysToFirstResponse: number | null
+  sampleSize: number
+  bySource: Record<string, ResponseTimingBucket>
+  byResumeVersion: Record<string, ResponseTimingBucket>
+}
+
+export interface DirectRejectionStats {
+  count: number
+  rate: number
+}
+
 export interface Patterns {
   summary: {
     total: number
@@ -108,6 +128,9 @@ export interface Patterns {
   // v3.1 additions
   salaryInsights: SalaryInsights
   salaryDistribution: SalaryDistributionPoint[]
+  // v3.3.0 additions
+  responseTiming?: ResponseTiming
+  directRejections?: DirectRejectionStats
 }
 
 // v2.0: user settings - weekly goal and streak

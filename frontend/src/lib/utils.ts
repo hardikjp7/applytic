@@ -1,4 +1,4 @@
-import type { AppStatus } from '../types'
+import type { AppStatus, Application } from '../types'
 
 export const STATUS_LABELS: Record<AppStatus, string> = {
   applied:   'Applied',
@@ -33,4 +33,18 @@ export const SOURCE_LABELS: Record<string, string> = {
   cold:        'Cold Apply',
   'job-board': 'Job Board',
   unknown:     'Other',
+}
+
+// v3.3.0: "responded" means the application ever reached screened or beyond,
+// even if it was rejected afterwards. Items written before maxStage existed
+// fall back to their current status, matching the backend.
+const STAGES = ['applied', 'screened', 'interview', 'offer']
+
+export function effectiveMaxStage(app: Pick<Application, 'status' | 'maxStage'>): string {
+  if (app.maxStage && STAGES.includes(app.maxStage)) return app.maxStage
+  return STAGES.includes(app.status) ? app.status : 'applied'
+}
+
+export function hasResponded(app: Pick<Application, 'status' | 'maxStage'>): boolean {
+  return STAGES.indexOf(effectiveMaxStage(app)) >= 1
 }
