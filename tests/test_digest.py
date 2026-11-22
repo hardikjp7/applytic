@@ -479,6 +479,27 @@ class TestDetectRejectionPatterns:
         assert isinstance(alerts, list)
 
 
+class TestMaxStageAwareResponseRate:
+
+    def test_rejected_after_interview_counts_as_responded(self):
+        apps = [{**make_app('a1', 'user-1', 'Co', 'rejected'), 'maxStage': 'interview'}]
+        assert _mod._response_rate(apps) == 100.0
+
+    def test_legacy_rejected_without_max_stage_is_not_responded(self):
+        assert _mod._response_rate([make_app('a1', 'user-1', 'Co', 'rejected')]) == 0.0
+
+    def test_direct_rejection_is_not_responded(self):
+        apps = [{**make_app('a1', 'user-1', 'Co', 'rejected'), 'maxStage': 'applied'}]
+        assert _mod._response_rate(apps) == 0.0
+
+    def test_no_zero_response_alert_when_rejections_followed_a_screen(self):
+        apps = [
+            {**make_app(f'app-{i}', 'user-1', f'Co{i}', 'rejected', resume_version='v2'), 'maxStage': 'interview'}
+            for i in range(MIN_APPS_FOR_ZERO_RESPONSE_ALERT)
+        ]
+        assert detect_rejection_patterns('user-1', apps) == []
+
+
 # ── Tests: store_alerts (v3.0) ─────────────────────────────────────────────────
 
 class TestStoreAlerts:

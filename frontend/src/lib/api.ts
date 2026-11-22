@@ -1,5 +1,5 @@
 import { api } from './amplify'
-import type { Application, AppStatus, Patterns, UserSettings, Note, InterviewPrep, InterviewQuestion, PatternAlert, Contact } from '../types'
+import type { Application, AppStatus, Patterns, UserSettings, Note, InterviewPrep, InterviewQuestion, PatternAlert, Contact, StatusEvent } from '../types'
 
 // ── Applications ──────────────────────────────────────────────────────────────
 
@@ -32,6 +32,12 @@ export const updateStatus = async (
   notes?: string
 ): Promise<void> => {
   await api.post(`/applications/${appId}/status`, { status, notes })
+}
+
+// v3.3.0: real status history for an application (oldest first)
+export const getStatusEvents = async (appId: string): Promise<StatusEvent[]> => {
+  const res = await api.get(`/applications/${appId}/events`)
+  return res.data.events
 }
 
 // ── Resume upload ─────────────────────────────────────────────────────────────
@@ -73,9 +79,10 @@ export const getInsights = async (): Promise<Patterns> => {
 }
 
 export const chatWithCoach = async (
-  message: string
+  message: string,
+  history: { role: 'user' | 'assistant'; content: string }[] = []
 ): Promise<{ reply: string; dataInsufficient?: boolean }> => {
-  const res = await api.post('/insights/chat', { message })
+  const res = await api.post('/insights/chat', { message, history })
   return res.data
 }
 

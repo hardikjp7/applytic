@@ -18,6 +18,7 @@ v3.0 additions to build_context_for_llm():
 """
 import json
 import os
+import statistics
 from collections import defaultdict, Counter
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -47,9 +48,16 @@ NOTES_PER_APP_LIMIT = 5
 MAX_INTERVIEW_APPS_FOR_CONTEXT = 20  # safety cap, matches recent-apps cap below
 MAX_CHAT_MESSAGE_LENGTH = 1000  # v3.2.1
 
+# v3.3.0: AI Coach multi-turn limits. History is client-supplied, so it is
+# treated as untrusted input and sanitised server-side.
+HISTORY_MAX_TURNS = 6
+HISTORY_MAX_CHARS_PER_TURN = 1000
+HISTORY_RAW_SCAN_LIMIT = 50  # never walk an arbitrarily long client list
+
 
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[list] = None  # v3.3.0: prior turns [{role, content}], sanitised in sanitize_history()
 
     @field_validator("message")
     @classmethod
@@ -92,6 +100,72 @@ def _parse_date(date_str: str) -> datetime | None:
         return None
 
 
+# ── v3.3.0: stage-aware response helpers ──────────────────────────────────────
+
+STAGE_RANK = {"applied": 0, "screened": 1, "interview": 2, "offer": 3}
+
+
+def _effective_max_stage(app: dict) -> str:
+    """Highest staged status ever reached. Falls back to the current status for
+    items written before v3.3.0 (no maxStage yet), so deploy-before-backfill is safe."""
+    ms = app.get("maxStage")
+    if ms in STAGE_RANK:
+        return ms
+    status = app.get("status", "applied")
+    return status if status in STAGE_RANK else "applied"
+
+
+def _has_responded(app: dict) -> bool:
+    """Responded = ever reached screened or beyond, even if later rejected."""
+    return STAGE_RANK[_effective_max_stage(app)] >= 1
+
+
+def _is_direct_rejection(app: dict) -> bool:
+    """Rejected without ever being screened."""
+    return app.get("status") == "rejected" and _effective_max_stage(app) == "applied"
+
+
+def _days_to_first_response(app: dict) -> Optional[int]:
+    """Whole days from dateApplied to firstResponseAt, clamped at 0. None if either is missing."""
+    fr = _parse_date(app.get("firstResponseAt", ""))
+    applied = _parse_date(app.get("dateApplied", ""))
+    if fr is None or applied is None:
+        return None
+    return max(0, (fr.date() - applied.date()).days)
+
+
+def _median_or_none(values: list) -> Optional[float]:
+    return round(statistics.median(values), 1) if values else None
+
+
+def _compute_response_timing(apps: list) -> dict:
+    """Median days to first response, overall and per source / resume version.
+    Only counts applications that have a firstResponseAt."""
+    overall: list = []
+    by_source: dict = defaultdict(list)
+    by_resume: dict = defaultdict(list)
+    for app in apps:
+        d = _days_to_first_response(app)
+        if d is None:
+            continue
+        overall.append(d)
+        by_source[app.get("source") or "unknown"].append(d)
+        by_resume[app.get("resumeVersion") or "default"].append(d)
+    return {
+        "medianDaysToFirstResponse": _median_or_none(overall),
+        "sampleSize": len(overall),
+        "bySource": {k: {"medianDays": _median_or_none(v), "count": len(v)} for k, v in by_source.items()},
+        "byResumeVersion": {k: {"medianDays": _median_or_none(v), "count": len(v)} for k, v in by_resume.items()},
+    }
+
+
+def _compute_direct_rejection_stats(apps: list) -> dict:
+    """Direct rejections as a count and as a % of all applications."""
+    total = len(apps)
+    direct = sum(1 for a in apps if _is_direct_rejection(a))
+    return {"count": direct, "rate": round(direct / total * 100, 1) if total else 0.0}
+
+
 # ── v2.1: funnel ──────────────────────────────────────────────────────────────
 
 def _compute_funnel(apps: list) -> dict:
@@ -108,16 +182,15 @@ def _compute_funnel(apps: list) -> dict:
     if total == 0:
         return {"stages": []}
 
-    status_counts = defaultdict(int)
+    # v3.3.0: cumulative by highest stage ever reached, not current status,
+    # so interview-then-rejected still counts toward Interview.
+    stage_counts = defaultdict(int)
     for app in apps:
-        status_counts[app.get("status", "applied")] += 1
+        stage_counts[_effective_max_stage(app)] += 1
 
-    # Applications that ever reached screened or beyond
-    screened_plus = sum(
-        status_counts[s] for s in ("screened", "interview", "offer")
-    )
-    interview_plus = sum(status_counts[s] for s in ("interview", "offer"))
-    offer_count = status_counts["offer"]
+    screened_plus = sum(stage_counts[s] for s in ("screened", "interview", "offer"))
+    interview_plus = sum(stage_counts[s] for s in ("interview", "offer"))
+    offer_count = stage_counts["offer"]
 
     stages_raw = [
         ("Applied", total),
@@ -179,7 +252,7 @@ def _compute_response_rate_time_series(apps: list) -> list:
             ws_end = ws + timedelta(weeks=1)
             if ws <= dt < ws_end:
                 totals[i] += 1
-                if app.get("status") in responded_statuses:
+                if _has_responded(app):
                     responded[i] += 1
                 break
 
@@ -532,7 +605,7 @@ def compute_patterns(apps: list) -> dict:
     for app in apps:
         status = app.get("status", "applied")
         status_counts[status] += 1
-        responded = status in responded_statuses
+        responded = _has_responded(app)
 
         source = app.get("source", "unknown")
         by_source[source]["total"] += 1
@@ -587,7 +660,7 @@ def compute_patterns(apps: list) -> dict:
             "total": total,
             "byStatus": dict(status_counts),
             "responseRate": round(
-                sum(1 for a in apps if a.get("status") in responded_statuses) / total * 100, 1
+                sum(1 for a in apps if _has_responded(a)) / total * 100, 1
             ),
             "offerRate": round(status_counts["offer"] / total * 100, 1),
         },
@@ -615,6 +688,9 @@ def compute_patterns(apps: list) -> dict:
         # v3.1
         "salaryInsights": _compute_salary_insights(apps),
         "salaryDistribution": _compute_salary_distribution(apps),
+        # v3.3.0
+        "responseTiming": _compute_response_timing(apps),
+        "directRejections": _compute_direct_rejection_stats(apps),
     }
 
 
@@ -646,6 +722,22 @@ def build_context_for_llm(apps: list, patterns: dict, enrichment: dict = None) -
     lines.append("\nResponse rates by company size:")
     for size, data in patterns["breakdowns"]["byCompanySize"].items():
         lines.append(f"  {size}: {data['responseRate']}% ({data['total']} apps)")
+
+    # v3.3.0: response timing + direct rejections
+    timing = patterns.get("responseTiming") or {}
+    if timing.get("medianDaysToFirstResponse") is not None:
+        lines.append(
+            f"\nMedian days from applying to first response: {timing['medianDaysToFirstResponse']} "
+            f"(across {timing['sampleSize']} applications)"
+        )
+        for source, d in (timing.get("bySource") or {}).items():
+            lines.append(f"  {source}: {d['medianDays']} days ({d['count']} apps)")
+    direct = patterns.get("directRejections") or {}
+    if direct.get("count", 0) > 0:
+        lines.append(
+            f"\nDirect rejections (rejected without ever getting a screen): "
+            f"{direct['count']} ({direct['rate']}% of applications)"
+        )
 
     # v3.1.1: salary insights, now currency-aware
     salary = patterns.get("salaryInsights", {})
@@ -702,27 +794,83 @@ def build_context_for_llm(apps: list, patterns: dict, enrichment: dict = None) -
     return "\n".join(lines)
 
 
+def sanitize_history(history) -> list:
+    """Returns a clean, alternating user/assistant list that starts with a user
+    turn and ends with an assistant turn (the new message is appended after it).
+    Bedrock (Nova and Anthropic) rejects non-alternating or assistant-first
+    conversations, so this fixes the shape instead of trusting the client."""
+    if not isinstance(history, list):
+        return []
+
+    cleaned = []
+    for turn in history[-HISTORY_RAW_SCAN_LIMIT:]:
+        if not isinstance(turn, dict):
+            continue
+        role = turn.get("role")
+        content = turn.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, str):
+            continue
+        content = content.strip()[:HISTORY_MAX_CHARS_PER_TURN]
+        if content:
+            cleaned.append({"role": role, "content": content})
+
+    cleaned = cleaned[-HISTORY_MAX_TURNS:]
+
+    # Collapse consecutive same-role turns, keeping the latest
+    alternating = []
+    for turn in cleaned:
+        if alternating and alternating[-1]["role"] == turn["role"]:
+            alternating[-1] = turn
+        else:
+            alternating.append(turn)
+
+    # Must start with user (drops the static assistant greeting) ...
+    while alternating and alternating[0]["role"] != "user":
+        alternating.pop(0)
+    # ... and end with assistant (the new user message follows it)
+    while alternating and alternating[-1]["role"] != "assistant":
+        alternating.pop()
+    return alternating
+
+
+def _build_chat_turns(user_message: str, context: str, history: list) -> list:
+    """History + the new message, with the data context in the FIRST turn so it
+    works for both the Nova and Anthropic payload shapes. With no history this
+    is a single turn identical to the pre-v3.3.0 prompt."""
+    turns = list(history or []) + [{"role": "user", "content": user_message}]
+    turns[0] = {
+        "role": "user",
+        "content": f"Here is my job search data:\n\n{context}\n\nMy question: {turns[0]['content']}",
+    }
+    return turns
+
+
 @tracer.capture_method
-def chat_with_coach(user_message: str, context: str) -> str:
+def chat_with_coach(user_message: str, context: str, history: list = None) -> str:
     system_prompt = """You are a pragmatic, data-driven job search coach.
 Give specific, actionable advice based on what the data actually shows.
 Be direct and honest. Reference specific numbers and patterns.
 If interview context or active alerts are present, use them to give more
 specific, personalised advice rather than generic tips.
+Earlier turns of this conversation may be included - use them to answer
+follow-up questions without asking the user to repeat themselves.
 Keep responses under 250 words unless asked for more detail."""
 
-    user_prompt = f"Here is my job search data:\n\n{context}\n\nMy question: {user_message}"
+    turns = _build_chat_turns(user_message, context, history or [])
 
     if "anthropic" in MODEL_ID:
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}],
+            "messages": [{"role": t["role"], "content": t["content"]} for t in turns],
         }
     else:
+        # Nova: system prompt stays folded into the first user turn, as before
+        nova_turns = [dict(t) for t in turns]
+        nova_turns[0]["content"] = system_prompt + "\n\n" + nova_turns[0]["content"]
         body = {
-            "messages": [{"role": "user", "content": [{"text": system_prompt + "\n\n" + user_prompt}]}],
+            "messages": [{"role": t["role"], "content": [{"text": t["content"]}]} for t in nova_turns],
             "inferenceConfig": {"maxTokens": 1024},
         }
 
@@ -778,11 +926,13 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             # v3.0: enrich context with interview notes, prep questions, and active alerts
             enrichment = build_coach_enrichment(user_id, apps)
             context_str = build_context_for_llm(apps, patterns, enrichment)
-            reply = chat_with_coach(req.message, context_str)
+            history = sanitize_history(req.history)
+            reply = chat_with_coach(req.message, context_str, history)
             logger.info("Chat response sent", extra={
                 "remaining_chats": remaining,
                 "interview_apps_enriched": len(enrichment["interviewNotes"]) + len(enrichment["interviewPrep"]),
                 "active_alerts": len(enrichment["alerts"]),
+                "history_turns": len(history),
             })
             return resp(200, {"reply": reply, "patterns": patterns, "remainingChats": remaining}, event)
 

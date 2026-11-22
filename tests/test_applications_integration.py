@@ -110,6 +110,7 @@ get_application = _mod.get_application
 update_application = _mod.update_application
 delete_application = _mod.delete_application
 update_status = _mod.update_status
+list_status_events = _mod.list_status_events
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -445,3 +446,62 @@ class TestDeleteApplicationIntegration:
                 items, count = list_applications(USER_ID)
                 assert count == 0
                 assert all(a['appId'] != app_id for a in items)
+
+
+class TestMaxStageIntegration:
+    def test_max_stage_and_first_response_persist(self):
+        with mock_aws():
+            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            table = create_dynamodb_table(dynamodb)
+            with patch('applications_handler_int.table', table):
+                created = create_application(USER_ID, {'company': 'A', 'role': 'SWE', 'status': 'applied'}, make_event())
+                app_id = json.loads(created['body'])['application']['appId']
+                update_status(USER_ID, app_id, {'status': 'interview'}, make_event())
+                update_status(USER_ID, app_id, {'status': 'rejected'}, make_event())
+                item = table.get_item(Key={'PK': f'USER#{USER_ID}', 'SK': f'APP#{app_id}'})['Item']
+                assert item['status'] == 'rejected'
+                assert item['maxStage'] == 'interview'
+                assert item['firstResponseAt']
+
+    def test_events_route_returns_full_history(self):
+        with mock_aws():
+            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            table = create_dynamodb_table(dynamodb)
+            with patch('applications_handler_int.table', table):
+                created = create_application(USER_ID, {'company': 'A', 'role': 'SWE', 'status': 'applied'}, make_event())
+                app_id = json.loads(created['body'])['application']['appId']
+                update_status(USER_ID, app_id, {'status': 'screened'}, make_event())
+                result = list_status_events(USER_ID, app_id, make_event())
+                assert result['statusCode'] == 200
+                assert json.loads(result['body'])['count'] == 2
+
+
+class TestCascadeDeleteIntegration:
+    def _child_items(self, table, app_id):
+        for sk in ('NOTE#t#n1', 'CONTACT#t#c1', 'PREP#v1'):
+            table.put_item(Item={'PK': f'APP#{app_id}', 'SK': sk})
+
+    def test_delete_removes_whole_partition(self):
+        with mock_aws():
+            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            table = create_dynamodb_table(dynamodb)
+            with patch('applications_handler_int.table', table):
+                created = create_application(USER_ID, {'company': 'A', 'role': 'SWE', 'status': 'applied'}, make_event())
+                app_id = json.loads(created['body'])['application']['appId']
+                update_status(USER_ID, app_id, {'status': 'interview'}, make_event())
+                self._child_items(table, app_id)
+                delete_application(USER_ID, app_id, make_event())
+                left = table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('PK').eq(f'APP#{app_id}'))['Items']
+                assert left == []
+
+    def test_delete_leaves_other_applications_untouched(self):
+        with mock_aws():
+            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            table = create_dynamodb_table(dynamodb)
+            with patch('applications_handler_int.table', table):
+                a = json.loads(create_application(USER_ID, {'company': 'A', 'role': 'SWE', 'status': 'applied'}, make_event())['body'])['application']['appId']
+                b = json.loads(create_application(USER_ID, {'company': 'B', 'role': 'SWE', 'status': 'applied'}, make_event())['body'])['application']['appId']
+                self._child_items(table, b)
+                delete_application(USER_ID, a, make_event())
+                left = table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('PK').eq(f'APP#{b}'))['Items']
+                assert len(left) == 4  # 1 status event + note + contact + prep

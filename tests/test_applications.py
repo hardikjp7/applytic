@@ -432,6 +432,7 @@ class TestDeleteApplication:
         event = make_event('DELETE', '/applications/app-123', path_params={'appId': 'app-123'})
         with patch('applications_handler.table') as mt:
             mt.delete_item.return_value = {}
+            mt.query.return_value = {'Items': []}
             result = lambda_handler(event, None)
         assert result['statusCode'] == 200
         assert json.loads(result['body'])['appId'] == 'app-123'
@@ -514,3 +515,126 @@ class TestInputValidationV321:
         with patch('applications_handler.s3_client') as ms3:
             ms3.generate_presigned_url.return_value = 'https://s3.amazonaws.com/fake-url'
             assert lambda_handler(event, None)['statusCode'] == 200
+
+
+def _status_update(item, new_status):
+    event = make_event('POST', '/applications/app-123/status',
+                       path_params={'appId': 'app-123'}, body={'status': new_status})
+    with patch('applications_handler.table') as mt:
+        mt.get_item.return_value = {'Item': {'PK': 'USER#u', 'SK': 'APP#app-123', 'appId': 'app-123', **item}}
+        mt.update_item.return_value = {}
+        mt.put_item.return_value = {}
+        result = lambda_handler(event, None)
+        kwargs = mt.update_item.call_args[1]
+    assert result['statusCode'] == 200
+    return kwargs['ExpressionAttributeValues']
+
+
+class TestMaxStage:
+    def _create(self, status):
+        event = make_event('POST', '/applications', body={'company': 'Co', 'role': 'Eng', 'status': status})
+        with patch('applications_handler.table') as mt:
+            mt.put_item.return_value = {}
+            result = lambda_handler(event, None)
+        return json.loads(result['body'])['application']
+
+    def test_create_applied(self):
+        app = self._create('applied')
+        assert app['maxStage'] == 'applied'
+        assert 'firstResponseAt' not in app
+
+    def test_create_interview_sets_stage_and_first_response(self):
+        app = self._create('interview')
+        assert app['maxStage'] == 'interview'
+        assert app['firstResponseAt']
+
+    def test_create_directly_rejected_is_stage_applied(self):
+        app = self._create('rejected')
+        assert app['maxStage'] == 'applied'
+        assert 'firstResponseAt' not in app
+
+    def test_applied_to_screened_sets_first_response(self):
+        v = _status_update({'status': 'applied', 'maxStage': 'applied'}, 'screened')
+        assert v[':ms'] == 'screened'
+        assert ':fr' in v
+
+    def test_later_stage_does_not_overwrite_first_response(self):
+        v = _status_update({'status': 'screened', 'maxStage': 'screened',
+                            'firstResponseAt': '2024-01-02T00:00:00+00:00'}, 'interview')
+        assert v[':ms'] == 'interview'
+        assert ':fr' not in v
+
+    def test_rejection_after_interview_keeps_max_stage(self):
+        v = _status_update({'status': 'interview', 'maxStage': 'interview',
+                            'firstResponseAt': '2024-01-02T00:00:00+00:00'}, 'rejected')
+        assert v[':ms'] == 'interview'
+
+    def test_direct_rejection_stays_applied_no_first_response(self):
+        v = _status_update({'status': 'applied', 'maxStage': 'applied'}, 'rejected')
+        assert v[':ms'] == 'applied'
+        assert ':fr' not in v
+
+    def test_legacy_item_without_max_stage_falls_back_to_old_status(self):
+        v = _status_update({'status': 'screened'}, 'interview')
+        assert v[':ms'] == 'interview'
+        assert ':fr' not in v  # already responded earlier, date unknown: backfill sets it
+
+
+class TestStatusEventsRoute:
+    def _event(self):
+        return make_event('GET', '/applications/app-123/events', path_params={'appId': 'app-123'})
+
+    def test_returns_cleaned_events_in_order(self):
+        with patch('applications_handler.table') as mt:
+            mt.get_item.return_value = {'Item': {'appId': 'app-123'}}
+            mt.query.return_value = {'Items': [
+                {'PK': 'APP#app-123', 'SK': 'EVENT#1#a', 'fromStatus': None, 'toStatus': 'applied',
+                 'notes': '', 'createdAt': '1', 'entityType': 'STATUS_EVENT', 'userId': 'u'},
+                {'PK': 'APP#app-123', 'SK': 'EVENT#2#b', 'fromStatus': 'applied', 'toStatus': 'screened',
+                 'notes': 'call', 'createdAt': '2', 'entityType': 'STATUS_EVENT', 'userId': 'u'},
+            ]}
+            result = lambda_handler(self._event(), None)
+        assert result['statusCode'] == 200
+        body = json.loads(result['body'])
+        assert body['count'] == 2
+        assert [e['toStatus'] for e in body['events']] == ['applied', 'screened']
+        assert 'PK' not in body['events'][0] and 'userId' not in body['events'][0]
+
+    def test_404_when_not_owner(self):
+        with patch('applications_handler.table') as mt:
+            mt.get_item.return_value = {}
+            result = lambda_handler(self._event(), None)
+        assert result['statusCode'] == 404
+        mt.query.assert_not_called()
+
+
+class TestCascadeDelete:
+    def _delete(self, mt):
+        event = make_event('DELETE', '/applications/app-123', path_params={'appId': 'app-123'})
+        return lambda_handler(event, None)
+
+    def test_children_deleted_via_batch(self):
+        with patch('applications_handler.table') as mt:
+            mt.delete_item.return_value = {}
+            mt.query.return_value = {'Items': [
+                {'PK': 'APP#app-123', 'SK': 'EVENT#1'}, {'PK': 'APP#app-123', 'SK': 'NOTE#1'}]}
+            result = self._delete(mt)
+            batch = mt.batch_writer.return_value.__enter__.return_value
+        assert result['statusCode'] == 200
+        assert batch.delete_item.call_count == 2
+
+    def test_cascade_failure_does_not_fail_delete(self):
+        with patch('applications_handler.table') as mt:
+            mt.delete_item.return_value = {}
+            mt.query.side_effect = Exception('boom')
+            result = self._delete(mt)
+        assert result['statusCode'] == 200
+
+    def test_not_owner_returns_404_and_touches_no_children(self):
+        from botocore.exceptions import ClientError
+        with patch('applications_handler.table') as mt:
+            mt.delete_item.side_effect = ClientError(
+                {'Error': {'Code': 'ConditionalCheckFailedException', 'Message': 'x'}}, 'DeleteItem')
+            result = self._delete(mt)
+        assert result['statusCode'] == 404
+        mt.query.assert_not_called()

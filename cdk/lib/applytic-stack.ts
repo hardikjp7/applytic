@@ -684,6 +684,7 @@ export class ApplyticStack extends cdk.Stack {
     appResource.addMethod('PUT', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appResource.addMethod('DELETE', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
     appResource.addResource('status').addMethod('POST', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
+    appResource.addResource('events').addMethod('GET', new apigateway.LambdaIntegration(applicationsLambda), authOptions);
 
     const insightsResource = api.root.addResource('insights');
     insightsResource.addMethod('GET', new apigateway.LambdaIntegration(insightsLambda), authOptions);

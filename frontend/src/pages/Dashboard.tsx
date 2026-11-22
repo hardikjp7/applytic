@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useApplications } from '../hooks/useApplications'
 import { useSettings } from '../hooks/useSettings'
 import { useAlerts } from '../hooks/useAlerts'
-import { STATUS_LABELS, STATUS_COLORS } from '../lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, hasResponded } from '../lib/utils'
 import type { AppStatus } from '../types'
 import { formatDistanceToNow } from 'date-fns'
 import { TrendingUp, Target, Zap, Award, ArrowRight, Flame, Pencil, Check, X, AlertTriangle } from 'lucide-react'
@@ -155,7 +155,7 @@ export default function Dashboard() {
   const total = applications.length
   const interviews = applications.filter(a => a.status === 'interview').length
   const offers = applications.filter(a => a.status === 'offer').length
-  const responded = applications.filter(a => ['screened', 'interview', 'offer'].includes(a.status)).length
+  const responded = applications.filter(hasResponded).length
   const responseRate = total > 0 ? Math.round((responded / total) * 100) : 0
 
   const recent = [...applications]

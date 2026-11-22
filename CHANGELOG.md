@@ -4,6 +4,60 @@ All notable changes to Applytic are documented here.
 
 ---
 
+## [3.3.0] - 2026-11-22
+
+Theme: make the numbers true. Response rate, funnel and the other analytics were computed from an application's *current* status, so anything that reached a screen or interview and was later rejected counted as "no response". **Response rates will rise for users who have applications rejected after a screen or interview.** That is the numbers becoming correct, not a regression.
+
+### Added
+
+**Highest-stage tracking**
+- New application fields `maxStage` (highest staged status ever reached: applied, screened, interview, offer) and `firstResponseAt` (when the application first reached screened or beyond). `rejected` and `withdrawn` are terminal states, not stages
+- Set on create and on every status change; a later rejection never lowers `maxStage`
+- Legacy items without the fields fall back to their current status everywhere, so deploying before the backfill is safe
+
+**Response timing and direct rejections**
+- Median days from applying to first response, overall and per source and resume version (`responseTiming` in `GET /insights`)
+- Direct-rejection rate: applications rejected without ever being screened (`directRejections`)
+- Two new cards on the Analytics page; the timing card shows a placeholder below 3 responses; both are also in the AI Coach context
+
+**Real status timeline**
+- `GET /applications/{appId}/events` returns the status history, oldest first (24 routes in total)
+- The detail modal timeline now shows every real transition with its date instead of a synthetic two-row summary
+
+**AI Coach follow-up questions**
+- The chat sends the last 6 turns as `history`; the server validates roles, truncates each turn to 1000 characters and enforces user/assistant alternation. Works for both the Nova and Anthropic payloads. The daily limit still counts per message
+
+**Delete cascade and cleanup**
+- Deleting an application now also deletes its events, notes, contacts and interview prep (best effort, logged on failure)
+- `scripts/cleanup_orphans.py` finds and removes child items left by earlier deletes (dry run by default)
+
+**Migration**
+- `scripts/backfill_max_stage.py` computes `maxStage` and `firstResponseAt` from STATUS_EVENT history. Idempotent, `--dry-run`, per-user report, invariant check
+
+### Changed
+- Response rate (all breakdowns, the time series, the Dashboard, rejection-pattern alerts) now means "ever reached screened or beyond"
+- The funnel counts by highest stage reached, so interview-then-rejected stays in the Interview stage
+- The status-history chart is unchanged: it is still a current-status snapshot
+- The Interviews card on the Dashboard is unchanged: it still counts applications currently in interview
+
+### Infrastructure
+- One new API Gateway route on the existing applications Lambda; no new Lambdas, tables or IAM
+- No layer rebuild needed
+
+### Tests
+- New and extended unit and moto integration tests for the write path, events route, cascade delete, stage-aware analytics, coach history, and both scripts; Vitest cases for the Dashboard, hooks, coach history and the new Analytics cards
+
+### Known limitations
+- An application created or CSV-imported directly as `rejected` has no staged history, so it counts as a direct rejection. An application imported as `interview` has `maxStage` interview but no earlier events
+- Applications that responded before the backfill with no event proving when have `maxStage` but no `firstResponseAt`, so they are excluded from the timing median
+- DNS rebinding in the SSRF guard and the missing CORS headers on API Gateway 4xx responses are carried forward (see v3.2.1)
+
+### Upgrade notes
+- Merge to `main` and let CI deploy (this needs `cdk deploy` for the new route), then run `scripts/backfill_max_stage.py` and `scripts/cleanup_orphans.py` from your machine. CI never runs them. Take an on-demand DynamoDB backup first
+- Until the backfill runs, every number matches the pre-3.3.0 definition
+
+---
+
 ## [3.2.1] - 2026-10-25
 
 Patch release: security hardening and small, certain bug fixes. No schema change and no analytics change. App v3.2.1 + Extension 1.0.1.
