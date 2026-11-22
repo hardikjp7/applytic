@@ -13,7 +13,7 @@ info:
     no runtime request/response validation is wired against it in v2.2.
     Pydantic models in each Lambda handler remain the source of truth for
     actual input validation.
-  version: "3.2.1"
+  version: "3.3.0"
   contact:
     name: Hardik
     url: https://github.com/hardikjp7/applytic
@@ -202,6 +202,34 @@ paths:
                     example: interview
         "400":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /applications/{appId}/events:
+    parameters:
+      - $ref: "#/components/parameters/AppId"
+    get:
+      tags: [Applications]
+      summary: Get the status history of an application
+      description: |
+        Returns the status transitions written by `POST /applications/{appId}/status`
+        (and the initial `applied` event at creation), oldest first.
+      responses:
+        "200":
+          description: Status events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StatusEvent"
+                  count:
+                    type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -557,6 +585,9 @@ paths:
         funnel, weekly response-rate time series, and weekly status history.
         Returns `{ patterns: { message: ... } }` instead of the full shape
         when the user has zero applications.
+        As of v3.3.0, response rates count an application as responded if it
+        ever reached screened or beyond (`maxStage`), even if later rejected.
+        Also returns `responseTiming` and `directRejections`.
       responses:
         "200":
           description: Computed patterns
@@ -582,6 +613,7 @@ paths:
         TTL, reset at UTC midnight). The pattern summary is computed first and
         passed to Amazon Bedrock (Nova Lite) as structured context alongside
         the user's free-text question.
+        Accepts optional `history` (earlier turns) so follow-up questions work.
       requestBody:
         required: true
         content:
@@ -876,6 +908,15 @@ components:
         salaryNotes:
           type: string
           description: v3.1. Free text - salary range, equity, or other compensation context.
+        maxStage:
+          type: string
+          enum: [applied, screened, interview, offer]
+          description: v3.3.0. Highest staged status ever reached. Absent on items written before v3.3.0 until the backfill runs.
+        firstResponseAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: v3.3.0. When the application first reached screened or beyond.
         createdAt:
           type: string
           format: date-time
@@ -1013,6 +1054,22 @@ components:
           default: ""
           description: Optional note attached to this specific status transition event.
 
+    StatusEvent:
+      type: object
+      properties:
+        fromStatus:
+          allOf:
+            - $ref: "#/components/schemas/AppStatus"
+          nullable: true
+          description: Null for the initial event at creation.
+        toStatus:
+          $ref: "#/components/schemas/AppStatus"
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
     Note:
       type: object
       properties:
@@ -1079,6 +1136,20 @@ components:
           type: string
           maxLength: 1000
           description: Trimmed server-side; rejects empty messages and messages over 1000 characters with 400.
+        history:
+          type: array
+          description: |
+            Optional earlier turns, oldest first. The server keeps the last 6 valid
+            turns, truncates each to 1000 characters and enforces user/assistant
+            alternation; malformed turns are dropped, not rejected.
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [user, assistant]
+              content:
+                type: string
 
     InsightBreakdown:
       type: object
@@ -1227,6 +1298,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SalaryDistributionPoint"
+        responseTiming:
+          $ref: "#/components/schemas/ResponseTiming"
+        directRejections:
+          $ref: "#/components/schemas/DirectRejectionStats"
 
     SalaryInsights:
       type: object
@@ -1272,6 +1347,46 @@ components:
           example: "$120k-140k"
         count:
           type: integer
+
+    ResponseTiming:
+      type: object
+      description: v3.3.0. Only applications with a firstResponseAt are counted. Medians are in whole calendar days from dateApplied.
+      properties:
+        medianDaysToFirstResponse:
+          type: number
+          format: float
+          nullable: true
+        sampleSize:
+          type: integer
+        bySource:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ResponseTimingBucket"
+        byResumeVersion:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ResponseTimingBucket"
+
+    ResponseTimingBucket:
+      type: object
+      properties:
+        medianDays:
+          type: number
+          format: float
+          nullable: true
+        count:
+          type: integer
+
+    DirectRejectionStats:
+      type: object
+      description: v3.3.0. Applications rejected without ever being screened.
+      properties:
+        count:
+          type: integer
+        rate:
+          type: number
+          format: float
+          description: Percentage of all applications.
 
     UserSettings:
       type: object

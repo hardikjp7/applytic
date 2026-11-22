@@ -1,10 +1,11 @@
 # Applytic
 
 ![CI/CD](https://github.com/hardikjp7/applytic/actions/workflows/deploy.yml/badge.svg)
-![Version](https://img.shields.io/badge/version-v3.2.1-534ab7)
+![Version](https://img.shields.io/badge/version-v3.3.0-534ab7)
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/hardikjp7/badge.svg)](https://hub.xerj.org/contributors/hardikjp7)
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
-**Current version:** v3.2.1 (Security & Surgical Fixes) - released October 2026
+**Current version:** v3.3.0 (Analytics Trust) - released November 2026
 
 > AI-powered job application tracker that learns from your rejections.
 
@@ -60,6 +61,7 @@ So I instrumented my own job search. Every application became a data point. Afte
 - Search by company/role, filter by source channel
 - Color-coded left border per status on kanban cards for instant visual scanning
 - Amber "Follow up" badge on overdue cards
+- Real status timeline per application, from the recorded status history
 
 **Weekly goal tracking**
 - Set a weekly application target on the Dashboard
@@ -88,6 +90,9 @@ So I instrumented my own job search. Every application became a data point. Afte
 - AI coaching chat powered by Bedrock - answers questions like "why am I getting ghosted?" using your actual data as context
 - Markdown rendering in chat responses
 - Weekly email digest every Monday with stats + one AI-generated personalised tip
+- Response rate counts an application as responded if it ever reached a screen or beyond, even if it was rejected later - so rejections after an interview no longer hide your real response rate
+- Median time to first response and a direct-rejection rate (rejected without ever being screened)
+- Follow-up questions in the AI coach: it remembers the last few turns of the conversation
 
 **Interview prep**
 - Generate 10 tailored interview questions per application using the job description URL and Amazon Nova Lite
@@ -321,6 +326,8 @@ Pipeline steps:
 
 **Popup-triggered extension** - the extension has no in-page UI. Content scripts only extract job data when the toolbar popup asks for it, which removes per-site button-placement code entirely; extraction relies on stable signals (document.title, test ids, URL patterns) rather than CSS classes, which LinkedIn and Indeed hash per build.
 
+**Highest-stage counting** - "responded" is derived from the highest stage an application ever reached (`maxStage`), not its current status, so a later rejection cannot erase the fact that a company replied. Existing data is migrated by an idempotent backfill from the status event history; until it runs, code falls back to the current status, so deploy order is safe.
+
 ---
 
 ## Tech Stack
@@ -383,6 +390,8 @@ applytic/
 ├── scripts/
 │   ├── seed_data.py
 │   ├── build_layer.sh
+│   ├── backfill_max_stage.py
+│   ├── cleanup_orphans.py
 │   └── setup_oidc_v11.sh
 └── .github/workflows/
     ├── deploy.yml
@@ -421,6 +430,7 @@ GET    /v1/applications/{appId}
 PUT    /v1/applications/{appId}
 DELETE /v1/applications/{appId}
 POST   /v1/applications/{appId}/status
+GET    /v1/applications/{appId}/events
 GET    /v1/applications/{appId}/notes
 POST   /v1/applications/{appId}/notes
 DELETE /v1/applications/{appId}/notes/{noteId}

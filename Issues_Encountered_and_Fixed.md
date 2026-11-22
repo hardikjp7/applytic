@@ -424,3 +424,27 @@ Full list of issues encountered during the development of Applytic, and how each
 * **Issue:** After the popup-triggered redesign the manifest still requested `webNavigation` (a leftover of the iframe theory in Issue 52), carried an empty `externally_connectable` block, and `linkedin.css`/`shared.css` were unused. `glassdoor.js` still said its selectors were unverified.
 
 * **Fix:** Removed the permission and block, deleted the CSS files, corrected the header, and bumped the extension to 1.0.1.
+
+### 71. Response rate and funnel were understated
+
+* **Issue:** "Responded" was computed from an application's current status. An application that went applied, interview, rejected counted as no response, and the funnel dropped it from Interview. Response rate, best resume and source, the funnel, the Dashboard rate and rejection-pattern alerts were all too low, and a "0% response rate" alert could fire for a resume that had in fact earned interviews.
+
+* **Fix:** Added `maxStage` and `firstResponseAt` to applications and counted responses by highest stage reached, with a fallback to the current status for old items. Existing data was migrated with an idempotent backfill from the status event history, with an invariant check that no application responds less than before.
+
+### 72. The status timeline in the detail modal was synthetic
+
+* **Issue:** The timeline showed "Added to tracker" and one "Moved to X" row using the last-edit date, because no API exposed the STATUS_EVENT records that were already being written.
+
+* **Fix:** Added `GET /applications/{appId}/events` and a `useStatusEvents` hook; the modal shows the real history and keeps the old rows only as a fallback.
+
+### 73. Deleting an application left its events, notes, contacts and prep behind
+
+* **Issue:** `delete_application` removed only the parent item. Everything under the `APP#{appId}` partition stayed in the table forever.
+
+* **Fix:** Delete now removes the parent first (ownership check), then the partition best effort. `scripts/cleanup_orphans.py` removes children left by earlier deletes, using each child's `userId` to find its parent.
+
+### 74. The AI Coach had no memory within a conversation
+
+* **Issue:** The frontend sent only the latest message, so a follow-up such as "what about the second one?" had no context.
+
+* **Fix:** The last 6 turns are sent as `history` and sanitised server-side (roles, length, alternation, a user-first and assistant-last shape that both Bedrock payload formats accept).
